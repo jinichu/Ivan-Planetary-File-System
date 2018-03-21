@@ -220,13 +220,15 @@ func (s *Server) DecryptDocument(documentData []byte, key []byte) (decryptedDocu
 	if len(documentData) < aes.BlockSize {
 		panic("ciphertext too short")
 	}
+
 	iv := documentData[:aes.BlockSize]
 	documentData = documentData[aes.BlockSize:]
 
 	stream := cipher.NewCFBDecrypter(aesBlock, iv)
-	stream.XORKeyStream(documentData, documentData)
+	plainText := make([]byte, len(documentData))
+	stream.XORKeyStream(plainText, documentData)
 
-	err = decryptedDocument.Unmarshal(documentData)
+	err = decryptedDocument.Unmarshal(plainText)
 	if err != nil {
 		return serverpb.Document{}, err
 	}
