@@ -13,6 +13,7 @@ deps:
 	go get -u ./...
 	go get -u google.golang.org/grpc
 	go get -u github.com/gogo/protobuf/protoc-gen-gogoslick
+	go get -u github.com/spaolacci/murmur3
 
 .PHONY: proto
 proto:
