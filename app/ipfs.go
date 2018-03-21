@@ -60,7 +60,7 @@ func start(client serverpb.ClientClient, ctx context.Context) {
 			reference(cmd, client, ctx)
 		case "help":
 			fmt.Printf("\n 🚀  List of options: \n\n")
-			fmt.Println("	get <document_id>			   Fetch a document")
+			fmt.Println("	get <document_id:access_key>		   Fetch a document")
 			fmt.Println("	add <path/to/file>		  	   Add a document to this node")
 			fmt.Println("	add -r <path/to/dir>		  	   Add a directory to this node")
 			fmt.Println("	add -c <documents>		  	   Create a parent to a list of existing documents")
@@ -80,10 +80,14 @@ func start(client serverpb.ClientClient, ctx context.Context) {
 
 func get(cmd []string, client serverpb.ClientClient, ctx context.Context) {
 	if len(cmd) != 2 {
-		fmt.Println("Incorrect number of arguments. Please specify a file ID.")
+		fmt.Println("Incorrect number of arguments. Please specify a document ID and access key.")
 	} else {
+		if !strings.Contains(cmd[1], ":") {
+			fmt.Println("Please follow the following format: 'document_id:access_key'.")
+			return
+		}
 		args := &serverpb.GetRequest{
-			DocumentId: cmd[1],
+			AccessId: cmd[1],
 		}
 		resp, err := client.Get(ctx, args)
 		if err != nil {
@@ -121,7 +125,7 @@ func add(cmd []string, client serverpb.ClientClient, ctx context.Context) {
 			if err != nil {
 				fmt.Println(err)
 			} else {
-				fmt.Println("Document ID: " + resp.GetDocumentId())
+				fmt.Println("Access ID: " + resp.GetAccessId())
 			}
 		}
 	} else if cmd[1] == "-r" && len(cmd) == 3 {
@@ -139,23 +143,23 @@ func add(cmd []string, client serverpb.ClientClient, ctx context.Context) {
 		if err != nil {
 			fmt.Println(err)
 		} else {
-			fmt.Println("Document ID: " + hash)
+			fmt.Println("Access ID: " + hash)
 		}
 	} else if cmd[1] == "-r" && len(cmd) != 3 {
 		fmt.Println("Please specify the path to the directory you wish to add.")
 	} else if cmd[1] == "-c" && len(cmd) == 3 {
 		// Creating a parent for a list of existing documents
-		if !strings.Contains(cmd[2], ":") {
-			fmt.Println("Documents should be in the format of 'name1:document1_id,name2:document2_id'.")
+		if !strings.Contains(cmd[2], ",") || !strings.Contains(cmd[2], ":") {
+			fmt.Println("Documents should be in the format of 'name1,document1_id:access_key1;name2,document2_id:access_key2'.")
 		}
 		document := &serverpb.Document{
 			ContentType: "directory",
 			Children:    make(map[string]string),
 		}
-		pairs := strings.Split(cmd[2], ",")
+		pairs := strings.Split(cmd[2], ";")
 		for _, pair := range pairs {
 			pair = strings.TrimSpace(pair)
-			child := strings.Split(pair, ":")
+			child := strings.Split(pair, ",")
 			document.Children[child[0]] = child[1]
 		}
 		args := &serverpb.AddRequest{
@@ -165,10 +169,10 @@ func add(cmd []string, client serverpb.ClientClient, ctx context.Context) {
 		if err != nil {
 			fmt.Println(err)
 		} else {
-			fmt.Println("Document ID: " + resp.GetDocumentId())
+			fmt.Println("Access ID: " + resp.GetAccessId())
 		}
 	} else if cmd[1] == "-c" && len(cmd) != 3 {
-		fmt.Println("Please specify the list of documents you wish to create a parent for, in the format of 'name1:document1_id,name2:document2_id'")
+		fmt.Println("Please specify the list of documents you wish to create a parent for, in the format of 'name1,document1_id:access_key1;name2,document2_id:access_key2'.")
 	} else {
 		fmt.Println("Invalid command.")
 	}
@@ -280,7 +284,7 @@ func addDir(root string, ctx context.Context, client serverpb.ClientClient) (str
 		if err != nil {
 			return "", err
 		}
-		return resp.GetDocumentId(), nil
+		return resp.GetAccessId(), nil
 	}
 
 	files, err := file.Readdirnames(0)
@@ -305,5 +309,5 @@ func addDir(root string, ctx context.Context, client serverpb.ClientClient) (str
 	if err != nil {
 		return "", nil
 	}
-	return resp.GetDocumentId(), nil
+	return resp.GetAccessId(), nil
 }
