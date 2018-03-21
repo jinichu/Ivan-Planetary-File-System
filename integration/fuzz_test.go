@@ -66,7 +66,7 @@ func randType(t reflect.Type) reflect.Value {
 }
 
 func TestFuzzRPC(t *testing.T) {
-	ts := NewTestCluster(t, 3)
+	ts := NewTestCluster(t, 1)
 	defer ts.Close()
 
 	n := ts.Nodes[0]
