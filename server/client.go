@@ -16,7 +16,7 @@ import (
 func (s *Server) Get(ctx context.Context, in *serverpb.GetRequest) (*serverpb.GetResponse, error) {
 	var f serverpb.Document
 	if err := s.db.View(func(txn *badger.Txn) error {
-		key := fmt.Sprintf("/document/%s", in.DocumentId)
+		key := fmt.Sprintf("/document/%s", in.GetDocumentId())
 		item, err := txn.Get([]byte(key))
 		if err != nil {
 			return err

@@ -42,8 +42,16 @@ func TestFuzzRPC(t *testing.T) {
 			m := typ.Method(i)
 			t.Run(typeName+"."+m.Name, func(t *testing.T) {
 				reqType := m.Type.In(1)
-				req := randType(reqType)
-				_ = nv.MethodByName(m.Name).Call([]reflect.Value{ctx, req})
+
+				{
+					req := reflect.Zero(reqType)
+					_ = nv.MethodByName(m.Name).Call([]reflect.Value{ctx, req})
+				}
+
+				{
+					req := randType(reqType)
+					_ = nv.MethodByName(m.Name).Call([]reflect.Value{ctx, req})
+				}
 			})
 		}
 	}
