@@ -38,7 +38,7 @@ func main() {
 		log.Fatal(err)
 	}
 	client := serverpb.NewClientClient(conn)
-	fmt.Println("\n 🌠  Welcome to the Ivan Planetary File System. Type 'help' to list all options. 🌠 \n")
+	fmt.Printf("\n 🌠  Welcome to the Ivan Planetary File System. Type 'help' to list all options. 🌠 \n\n")
 	start(client, ctx)
 }
 
@@ -59,8 +59,8 @@ func start(client serverpb.ClientClient, ctx context.Context) {
 		case "reference":
 			reference(cmd, client, ctx)
 		case "help":
-			fmt.Println("\n 🚀  List of options: \n")
-			fmt.Println("	get <document_id>			   Fetch a document")
+			fmt.Printf("\n 🚀  List of options: \n\n")
+			fmt.Println("	get <document_id:access_key>		   Fetch a document")
 			fmt.Println("	add <path/to/file>		  	   Add a document to this node")
 			fmt.Println("	add -r <path/to/dir>		  	   Add a directory to this node")
 			fmt.Println("	add -c <documents>		  	   Create a parent to a list of existing documents")
@@ -68,7 +68,7 @@ func start(client serverpb.ClientClient, ctx context.Context) {
 			fmt.Println("	peers add <node_id>	  		   Add a peer to this node")
 			fmt.Println("	reference get <reference_id>		   Fetch what that this reference points to")
 			fmt.Println("	reference add <record> <path/to/priv_key>  Add or update a reference")
-			fmt.Println("	quit					   Exit the program\n")
+			fmt.Printf("	quit					   Exit the program\n\n")
 		case "quit":
 			fmt.Println("Exiting program... Goodbye. 🌙")
 			os.Exit(1)
@@ -80,8 +80,12 @@ func start(client serverpb.ClientClient, ctx context.Context) {
 
 func get(cmd []string, client serverpb.ClientClient, ctx context.Context) {
 	if len(cmd) != 2 {
-		fmt.Println("Incorrect number of arguments. Please specify a file ID.")
+		fmt.Println("Incorrect number of arguments. Please specify a document ID and access key.")
 	} else {
+		if !strings.Contains(cmd[1], ":") {
+			fmt.Println("Please follow the following format: 'document_id:access_key'.")
+			return
+		}
 		args := &serverpb.GetRequest{
 			AccessId: cmd[1],
 		}
