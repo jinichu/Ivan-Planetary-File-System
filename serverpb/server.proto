@@ -50,7 +50,7 @@ message Reference {
 }
 
 message GetRequest {
-  string document_id = 1; // hash of document
+  string access_id = 1; // hash of document
 }
 
 message GetResponse {
@@ -62,7 +62,7 @@ message AddRequest {
 }
 
 message AddResponse {
-  string document_id = 1;
+  string access_id = 1;
 }
 
 message AddDirectoryRequest{

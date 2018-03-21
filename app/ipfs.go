@@ -83,7 +83,7 @@ func get(cmd []string, client serverpb.ClientClient, ctx context.Context) {
 		fmt.Println("Incorrect number of arguments. Please specify a file ID.")
 	} else {
 		args := &serverpb.GetRequest{
-			DocumentId: cmd[1],
+			AccessId: cmd[1],
 		}
 		resp, err := client.Get(ctx, args)
 		if err != nil {
@@ -121,7 +121,7 @@ func add(cmd []string, client serverpb.ClientClient, ctx context.Context) {
 			if err != nil {
 				fmt.Println(err)
 			} else {
-				fmt.Println("Document ID: " + resp.GetDocumentId())
+				fmt.Println("Access ID: " + resp.GetAccessId())
 			}
 		}
 	} else if cmd[1] == "-r" && len(cmd) == 3 {
@@ -139,7 +139,7 @@ func add(cmd []string, client serverpb.ClientClient, ctx context.Context) {
 		if err != nil {
 			fmt.Println(err)
 		} else {
-			fmt.Println("Document ID: " + hash)
+			fmt.Println("Access ID: " + hash)
 		}
 	} else if cmd[1] == "-r" && len(cmd) != 3 {
 		fmt.Println("Please specify the path to the directory you wish to add.")
@@ -165,7 +165,7 @@ func add(cmd []string, client serverpb.ClientClient, ctx context.Context) {
 		if err != nil {
 			fmt.Println(err)
 		} else {
-			fmt.Println("Document ID: " + resp.GetDocumentId())
+			fmt.Println("Access ID: " + resp.GetAccessId())
 		}
 	} else if cmd[1] == "-c" && len(cmd) != 3 {
 		fmt.Println("Please specify the list of documents you wish to create a parent for, in the format of 'name1:document1_id,name2:document2_id'")
@@ -280,7 +280,7 @@ func addDir(root string, ctx context.Context, client serverpb.ClientClient) (str
 		if err != nil {
 			return "", err
 		}
-		return resp.GetDocumentId(), nil
+		return resp.GetAccessId(), nil
 	}
 
 	files, err := file.Readdirnames(0)
@@ -296,7 +296,7 @@ func addDir(root string, ctx context.Context, client serverpb.ClientClient) (str
 		if err != nil {
 			return "", err
 		}
-		document.Children[filepath.Base(fname)] = hash
+		document.Children[filepath.Base(fname)] = strings.Split(hash, ":")[0]
 	}
 	args := &serverpb.AddRequest{
 		Document: document,
@@ -305,5 +305,5 @@ func addDir(root string, ctx context.Context, client serverpb.ClientClient) (str
 	if err != nil {
 		return "", nil
 	}
-	return resp.GetDocumentId(), nil
+	return resp.GetAccessId(), nil
 }

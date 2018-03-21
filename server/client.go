@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"crypto/aes"
 	"crypto/sha1"
 	"encoding/asn1"
 	"encoding/base64"
@@ -10,13 +11,15 @@ import (
 	"time"
 
 	"github.com/dgraph-io/badger"
-	"crypto/aes"
 )
 
 func (s *Server) Get(ctx context.Context, in *serverpb.GetRequest) (*serverpb.GetResponse, error) {
 	var f serverpb.Document
+	// TODO: Change this to take an _accessID_ and string split to separate the key and the documentID
+
+	// Local check, sees if the file is on the local node
 	if err := s.db.View(func(txn *badger.Txn) error {
-		key := fmt.Sprintf("/document/%s", in.DocumentId)
+		key := fmt.Sprintf("/document/%s", in.AccessId)
 		item, err := txn.Get([]byte(key))
 		if err != nil {
 			return err
@@ -25,22 +28,35 @@ func (s *Server) Get(ctx context.Context, in *serverpb.GetRequest) (*serverpb.Ge
 		if err != nil {
 			return err
 		}
+
+		// TODO: Decrypt the data so it's possible to unmarshal into a document
 		if err := f.Unmarshal(body); err != nil {
 			return err
 		}
 		return nil
 	}); err != nil {
+		// TODO: Check error, if file not found in the local one, network check
+		// TODO: Network check, does this document exist on the network? If so, return it
+		// Currently just returns no matter what the error was
 		return nil, err
 	}
 
+
+	// f should be a document at this point
 	resp := &serverpb.GetResponse{
 		Document: &f,
 	}
+
 
 	return resp, nil
 }
 
 func (s *Server) Add(ctx context.Context, in *serverpb.AddRequest) (*serverpb.AddResponse, error) {
+
+	// TODO: Take in a document (in.Document)
+	// TODO: Encrypt the document
+	//
+
 	b, err := in.Document.Marshal()
 	if err != nil {
 		return nil, err
@@ -49,14 +65,17 @@ func (s *Server) Add(ctx context.Context, in *serverpb.AddRequest) (*serverpb.Ad
 	data := sha1.Sum(b)
 	hash := base64.StdEncoding.EncodeToString(data[:])
 
+
+	// TODO: Change this to add the encrypted document andd the document ID (hash of the encrypted document)
 	if err := s.db.Update(func(txn *badger.Txn) error {
 		return txn.Set([]byte(fmt.Sprintf("/document/%s", hash)), b)
 	}); err != nil {
 		return nil, err
 	}
 
+	// TODO: Return the access ID (Rename DocumentID -> AccessID?)
 	resp := &serverpb.AddResponse{
-		DocumentId: hash,
+		AccessId: hash,
 	}
 
 	return resp, nil
@@ -156,14 +175,20 @@ func (s *Server) AddReference(ctx context.Context, in *serverpb.AddReferenceRequ
 	return resp, nil
 }
 
-func (s *Server) EncryptDocument(doc serverpb.Document) {
+// TODO: MAKE SOME End to End behaviour testing
+func (s *Server) EncryptDocument(doc serverpb.Document) (encryptedData []byte, key []byte, err error) {
 	// Create a new SHA1 handler
 	shaHandler := sha1.New()
 
+	marshalledData, err := doc.Marshal()
+	if err != nil {
+		return nil, nil, err
+	}
+
 	// Attempt to write the data to the SHA1 handler (is this right?)
-	if _, err := shaHandler.Write(doc.Data); err != nil {
+	if _, err := shaHandler.Write(marshalledData); err != nil {
 		// Well, error I guess
-		// TODO: Do something here
+		return nil, nil, err
 	}
 
 	// Grab the SHA1 key
@@ -172,18 +197,48 @@ func (s *Server) EncryptDocument(doc serverpb.Document) {
 	// Create a new AESBlockCipher
 	aesBlock, err := aes.NewCipher(docKey)
 	if err != nil {
-		// TODO: end here
+		return nil, nil, err
 	}
 
 	// Empty Byte Array
-	encryptedData := []byte{}
+	encryptedData = []byte{}
 
 	// Encrypt the block
-	aesBlock.Encrypt(encryptedData, doc.Data)
+	aesBlock.Encrypt(encryptedData, marshalledData)
 
-
+	return encryptedData, docKey, nil
 }
 
-func (s *Server) DecryptDocument() {
+func (s *Server) DecryptDocument(documentData []byte, key []byte) (decryptedDocument serverpb.Document, err error){
+	aesBlock, err := aes.NewCipher(key)
+	if err != nil {
+		return serverpb.Document{}, err
+	}
 
+	decryptedData := []byte{}
+	aesBlock.Decrypt(decryptedData, documentData)
+
+	err = decryptedDocument.Unmarshal(decryptedData)
+	if err != nil {
+		return serverpb.Document{}, err
+	}
+
+	return decryptedDocument, nil
+}
+
+// Given the (encrypted) document data and the key
+func (s *Server) GetAccessID(documentData []byte, key []byte) (accessID string, err error){
+	shaHandler := sha1.New()
+
+	// Attempt to write the data to the SHA1 handler (is this right?)
+	if _, err := shaHandler.Write(documentData); err != nil {
+		// Well, error I guess
+		return "", err
+	}
+
+	id := shaHandler.Sum(nil)
+
+	accessID = string(id) + ":" + string(key)
+
+	return accessID, nil
 }
