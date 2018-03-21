@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/dgraph-io/badger"
+	"crypto/aes"
 )
 
 func (s *Server) Get(ctx context.Context, in *serverpb.GetRequest) (*serverpb.GetResponse, error) {
@@ -153,4 +154,36 @@ func (s *Server) AddReference(ctx context.Context, in *serverpb.AddReferenceRequ
 		ReferenceId: referenceId,
 	}
 	return resp, nil
+}
+
+func (s *Server) EncryptDocument(doc serverpb.Document) {
+	// Create a new SHA1 handler
+	shaHandler := sha1.New()
+
+	// Attempt to write the data to the SHA1 handler (is this right?)
+	if _, err := shaHandler.Write(doc.Data); err != nil {
+		// Well, error I guess
+		// TODO: Do something here
+	}
+
+	// Grab the SHA1 key
+	docKey := shaHandler.Sum(nil)
+
+	// Create a new AESBlockCipher
+	aesBlock, err := aes.NewCipher(docKey)
+	if err != nil {
+		// TODO: end here
+	}
+
+	// Empty Byte Array
+	encryptedData := []byte{}
+
+	// Encrypt the block
+	aesBlock.Encrypt(encryptedData, doc.Data)
+
+
+}
+
+func (s *Server) DecryptDocument() {
+
 }
