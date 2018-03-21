@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/dgraph-io/badger"
+	"github.com/pkg/errors"
 )
 
 func (s *Server) Get(ctx context.Context, in *serverpb.GetRequest) (*serverpb.GetResponse, error) {
@@ -40,7 +41,11 @@ func (s *Server) Get(ctx context.Context, in *serverpb.GetRequest) (*serverpb.Ge
 }
 
 func (s *Server) Add(ctx context.Context, in *serverpb.AddRequest) (*serverpb.AddResponse, error) {
-	b, err := in.Document.Marshal()
+	doc := in.GetDocument()
+	if doc == nil {
+		return nil, errors.New("missing Document")
+	}
+	b, err := doc.Marshal()
 	if err != nil {
 		return nil, err
 	}

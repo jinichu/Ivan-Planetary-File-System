@@ -31,7 +31,11 @@ func (s *Server) Hello(ctx context.Context, req *serverpb.HelloRequest) (*server
 		Meta: &meta,
 	}
 
-	if err := s.AddNode(*req.Meta); err != nil {
+	reqMeta := req.GetMeta()
+	if reqMeta == nil {
+		return nil, errors.Errorf("Meta field required")
+	}
+	if err := s.AddNode(*reqMeta); err != nil {
 		return nil, err
 	}
 

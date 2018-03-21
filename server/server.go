@@ -91,6 +91,14 @@ func (s *Server) Close() error {
 	return nil
 }
 
+// TestGRPCServer returns the internal *grpc.Server. Testing purposes only!
+func (s *Server) TestGRPCServer() *grpc.Server {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.mu.grpcServer
+}
+
 // Listen causes the server to listen on the specified IP and port.
 func (s *Server) Listen(addr string) error {
 	l, err := net.Listen("tcp", addr)
