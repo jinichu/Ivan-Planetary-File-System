@@ -89,6 +89,9 @@ func (s *Server) Add(ctx context.Context, in *serverpb.AddRequest) (*serverpb.Ad
 		AccessId: accessId,
 	}
 
+	// add to bloom filter right here
+	
+
 	return resp, nil
 }
 

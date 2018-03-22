@@ -1,0 +1,50 @@
+syntax = "proto3";
+package routing_tablepb;
+
+message BloomFilter {
+	int64 k = 1;
+	int64 m = 2;
+	bytes bit_array = 3;
+}
+
+message CreateBloomFilterRequest {
+}
+
+message CreateBloomFilterResponse {
+}
+
+message NodeConfig {
+  string path = 1;
+}
+
+message UpdateEntryRequest {
+	int64 num_hops = 1;
+	BloomFilter bf = 2;
+}
+
+message UpdateEntryResponse {
+	BloomFilter bf = 1;
+}
+
+message GetPeersWithFileRequest {
+	string file_hash = 1;
+}
+
+message GetPeersWithFileResponse {
+	map<int64, BloomFilter> unionizedEntries = 1;
+}
+
+// Add to bloom filter
+message AddNewFileRequest {
+	string file_hash = 1;
+}
+
+message AddNewFileResponse {
+	BloomFilter bf = 1;
+}
+
+service RoutingTable {
+	rpc Create(CreateBloomFilterRequest) returns (CreateBloomFilterResponse) {};
+	rpc Update(UpdateEntryRequest) returns (UpdateEntryResponse) {};
+	rpc RetrieveGroupOfNodesWithFiles(GetPeersWithFileRequest) returns (GetPeersWithFileResponse) {};
+}
