@@ -44,11 +44,14 @@ func (s *Server) Get(ctx context.Context, in *serverpb.GetRequest) (*serverpb.Ge
 		if err != badger.ErrKeyNotFound {
 			// Error wasn't an error relating to the document not being found locally. Return.
 			return nil, err
+		} else if err == badger.ErrKeyNotFound {
+			// TODO: Network check, does this document exist on the network? If so, return it (Bea)
+
+			// TODO: Then, decrypt the document and return it as a Document object (Jinny or Jonathan)
+
 		}
 	}
 
-	// TODO: Network check, does this document exist on the network? If so, return it (Bea)
-	// TODO: Then, decrypt the document and return it as a Document object (Jinny or Jonathan)
 
 	resp := &serverpb.GetResponse{
 		Document: &f,
