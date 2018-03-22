@@ -8,6 +8,7 @@ import (
 	"log"
 	"net"
 	"proj2_f5w9a_h6v9a_q7w9a_r8u8_w1c0b/serverpb"
+	"strconv"
 	"time"
 
 	"github.com/fatih/color"
@@ -68,6 +69,9 @@ func (s *Server) connectNode(ctx context.Context, meta serverpb.NodeMeta) (*grpc
 	var err error
 	var conn *grpc.ClientConn
 	for _, addr := range meta.Addrs {
+		if err := validateAddr(addr); err != nil {
+			return nil, err
+		}
 		ctx, _ := context.WithTimeout(ctx, dialTimeout)
 		conn, err = grpc.DialContext(ctx, addr, grpc.WithTransportCredentials(creds), grpc.WithBlock())
 		if err != nil {
@@ -205,15 +209,32 @@ func (s *Server) AddNodes(connected []*serverpb.NodeMeta, known []*serverpb.Node
 	return nil
 }
 
+func validateAddr(s string) error {
+	host, port, err := net.SplitHostPort(s)
+	if err != nil {
+		return err
+	}
+	if _, err := strconv.Atoi(port); err != nil {
+		return err
+	}
+	if len(host) == 0 {
+		return errors.Errorf("host empty in address %q", s)
+	}
+	return nil
+}
+
 // BootstrapAddNode adds a node by using an address to do an insecure connection
 // to a node, fetch node metadata and then reconnect via an encrypted
 // connection.
 func (s *Server) BootstrapAddNode(addr string) error {
+	if err := validateAddr(addr); err != nil {
+		return err
+	}
+
 	creds := credentials.NewTLS(&tls.Config{
 		Rand:               rand.Reader,
 		InsecureSkipVerify: true,
 	})
-
 	ctx := context.TODO()
 	ctxDial, _ := context.WithTimeout(ctx, dialTimeout)
 	conn, err := grpc.DialContext(ctxDial, addr, grpc.WithTransportCredentials(creds), grpc.WithBlock())

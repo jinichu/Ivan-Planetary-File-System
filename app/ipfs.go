@@ -222,8 +222,8 @@ func reference(cmd []string, client serverpb.ClientClient, ctx context.Context) 
 			fmt.Println(resp.GetReference().GetValue())
 		}
 	} else if cmd[1] == "add" && len(cmd) == 4 {
-		if !strings.Contains(cmd[2], "document:") && !strings.Contains(cmd[2], "reference:") {
-			fmt.Println("Record should be in the format of 'document:document_id' or 'reference:reference_id'.")
+		if !strings.Contains(cmd[2], "document@") && !strings.Contains(cmd[2], "reference@") {
+			fmt.Println("Record should be in the format of 'document@document_id:access_key' or 'reference@reference_id:access_key'.")
 			return
 		}
 		// Load private key into bytes

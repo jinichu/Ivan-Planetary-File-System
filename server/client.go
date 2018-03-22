@@ -16,12 +16,17 @@ import (
 	"time"
 
 	"github.com/dgraph-io/badger"
+	"github.com/pkg/errors"
 )
 
 func (s *Server) Get(ctx context.Context, in *serverpb.GetRequest) (*serverpb.GetResponse, error) {
 	var f serverpb.Document
-	documentId := strings.Split(in.AccessId, ":")[0]
-	accessKey, err := base64.StdEncoding.DecodeString(strings.Split(in.AccessId, ":")[1])
+	documentId := strings.Split(in.GetAccessId(), ":")[0]
+	parts := strings.Split(in.GetAccessId(), ":")
+	if len(parts) < 2 {
+		return nil, errors.Errorf("AccessId should have a :")
+	}
+	accessKey, err := base64.StdEncoding.DecodeString(parts[1])
 	if err != nil {
 		return nil, err
 	}
@@ -60,7 +65,11 @@ func (s *Server) Get(ctx context.Context, in *serverpb.GetRequest) (*serverpb.Ge
 }
 
 func (s *Server) Add(ctx context.Context, in *serverpb.AddRequest) (*serverpb.AddResponse, error) {
-	encryptedDocument, key, err := s.EncryptDocument(*in.Document)
+	doc := in.GetDocument()
+	if doc == nil {
+		return nil, errors.New("missing Document")
+	}
+	encryptedDocument, key, err := s.EncryptDocument(*doc)
 	if err != nil {
 		return nil, err
 	}
