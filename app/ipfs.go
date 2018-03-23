@@ -60,7 +60,7 @@ func start(client serverpb.ClientClient, ctx context.Context) {
 			reference(cmd, client, ctx)
 		case "help":
 			fmt.Printf("\n 🚀  List of options: \n\n")
-			fmt.Println("	get <document_id:access_key>		   Fetch a document")
+			fmt.Println("	get <access_id>		   Fetch a document")
 			fmt.Println("	add <path/to/file>		  	   Add a document to this node")
 			fmt.Println("	add -r <path/to/dir>		  	   Add a directory to this node")
 			fmt.Println("	add -c <documents>		  	   Create a parent to a list of existing documents")
@@ -94,9 +94,9 @@ func get(cmd []string, client serverpb.ClientClient, ctx context.Context) {
 			fmt.Println(err)
 		} else {
 			if resp.GetDocument().GetContentType() == "directory" {
-				fmt.Println("Child document IDs:")
-				for _, v := range resp.GetDocument().GetChildren() {
-					fmt.Println(v)
+				fmt.Println("Child documents:")
+				for k, v := range resp.GetDocument().GetChildren() {
+					fmt.Println(k + ": " + v)
 				}
 			} else {
 				fmt.Printf("%s\n", resp.Document.GetData())

@@ -49,11 +49,11 @@ func (s *Server) Get(ctx context.Context, in *serverpb.GetRequest) (*serverpb.Ge
 		if err != badger.ErrKeyNotFound {
 			// Error wasn't an error relating to the document not being found locally. Return.
 			return nil, err
+		} else if err == badger.ErrKeyNotFound {
+			// TODO: Network check, does this document exist on the network? If so, return it (Bea)
+			// TODO: Then, decrypt the document and return it as a Document object (Jinny or Jonathan)
 		}
 	}
-
-	// TODO: Network check, does this document exist on the network? If so, return it (Bea)
-	// TODO: Then, decrypt the document and return it as a Document object (Jinny or Jonathan)
 
 	resp := &serverpb.GetResponse{
 		Document: &f,
@@ -87,7 +87,6 @@ func (s *Server) Add(ctx context.Context, in *serverpb.AddRequest) (*serverpb.Ad
 	}
 
 	// add to bloom filter right here
-	
 
 	return resp, nil
 }
@@ -123,16 +122,35 @@ func (s *Server) AddPeer(ctx context.Context, in *serverpb.AddPeerRequest) (*ser
 }
 
 func (s *Server) GetReference(ctx context.Context, in *serverpb.GetReferenceRequest) (*serverpb.GetReferenceResponse, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if reference, ok := s.mu.references[in.GetReferenceId()]; ok {
-		resp := &serverpb.GetReferenceResponse{
-			Reference: &reference,
+	var reference serverpb.Reference
+	// Try to get reference locally first
+	if err := s.db.View(func(txn *badger.Txn) error {
+		key := fmt.Sprintf("/reference/%s", in.GetReferenceId())
+		item, err := txn.Get([]byte(key))
+		if err != nil {
+			return err
 		}
-		return resp, nil
+		body, err := item.Value()
+		if err != nil {
+			return err
+		}
+		if err = reference.Unmarshal(body); err != nil {
+			return err
+		}
+		return nil
+	}); err != nil {
+		if err != badger.ErrKeyNotFound {
+			// Error wasn't an error relating to the reference not being found locally. Return.
+			return nil, err
+		} else if err == badger.ErrKeyNotFound {
+			// TODO: Do a network lookup for this reference (Bea)
+		}
 	}
-	// TODO: Do a network lookup for this reference
-	resp := &serverpb.GetReferenceResponse{}
+
+	resp := &serverpb.GetReferenceResponse{
+		Reference: &reference,
+	}
+
 	return resp, nil
 }
 
@@ -171,15 +189,23 @@ func (s *Server) AddReference(ctx context.Context, in *serverpb.AddReferenceRequ
 	reference.Signature = base64.StdEncoding.EncodeToString(sig)
 
 	// Add this reference locally
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	referenceId, err := Hash(reference.PublicKey)
 	if err != nil {
 		return nil, err
 	}
-	s.mu.references[referenceId] = *reference
-	// TODO: Diseminate this reference to the rest of the network
+	b, err := reference.Marshal()
+	if err != nil {
+		return nil, err
+	}
+
+	if err := s.db.Update(func(txn *badger.Txn) error {
+		return txn.Set([]byte(fmt.Sprintf("/reference/%s", referenceId)), b)
+	}); err != nil {
+		return nil, err
+	}
+
+	// TODO: Add reference to bloom filter (Bea)
+
 	resp := &serverpb.AddReferenceResponse{
 		ReferenceId: referenceId,
 	}
@@ -246,21 +272,4 @@ func (s *Server) DecryptDocument(documentData []byte, key []byte) (decryptedDocu
 	}
 
 	return decryptedDocument, nil
-}
-
-// Given the (encrypted) document data and the key
-func (s *Server) GetAccessID(documentData []byte, key []byte) (accessID string, err error) {
-	shaHandler := sha1.New()
-
-	// Attempt to write the data to the SHA1 handler (is this right?)
-	if _, err := shaHandler.Write(documentData); err != nil {
-		// Well, error I guess
-		return "", err
-	}
-
-	id := shaHandler.Sum(nil)
-
-	accessID = string(id) + ":" + string(key)
-
-	return accessID, nil
 }
