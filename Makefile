@@ -13,10 +13,8 @@ deps:
 	go get -u ./...
 	go get -u google.golang.org/grpc
 	go get -u github.com/gogo/protobuf/protoc-gen-gogoslick
-	go get -u github.com/spaolacci/murmur3
 
 .PHONY: proto
 proto:
 	protoc -I .. -I . --gogoslick_out=plugins=grpc:. serverpb/server.proto
-	protoc -I .. -I . --gogoslick_out=plugins=grpc:. routing_tablepb/routing_table.proto
 
