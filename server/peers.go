@@ -76,7 +76,9 @@ func (s *Server) connectNode(ctx context.Context, meta serverpb.NodeMeta) (*grpc
 		conn, err = grpc.DialContext(ctx, addr, grpc.WithTransportCredentials(creds), grpc.WithBlock())
 		if err != nil {
 			s.log.Printf("error dialing %+v: %+v", addr, err)
+			continue
 		}
+		break
 	}
 	if err != nil {
 		return nil, errors.Wrapf(err, "dialing %s", meta.Id)

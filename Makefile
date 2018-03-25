@@ -18,5 +18,5 @@ deps:
 proto:
 	protoc -I .. -I . --gogoslick_out=plugins=grpc:. serverpb/server.proto
 
-app/ipfs: app/ipfs.go
+app/ipfs: app/ipfs.go proj2
 	go build -v app/ipfs.go

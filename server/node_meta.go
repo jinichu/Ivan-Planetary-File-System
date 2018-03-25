@@ -132,7 +132,9 @@ func (s *Server) NodeMeta() (serverpb.NodeMeta, error) {
 		addr := s.mu.l.Addr()
 		tcpAddr := addr.(*net.TCPAddr)
 		if tcpAddr.IP.IsUnspecified() {
-			meta.Addrs = append(meta.Addrs, net.JoinHostPort(getOutboundIP().String(), strconv.Itoa(tcpAddr.Port)))
+			port := strconv.Itoa(tcpAddr.Port)
+			meta.Addrs = append(meta.Addrs, net.JoinHostPort(getOutboundIP().String(), port))
+			meta.Addrs = append(meta.Addrs, net.JoinHostPort("localhost", port))
 			/*
 				ifaces, err := net.Interfaces()
 				if err != nil {
