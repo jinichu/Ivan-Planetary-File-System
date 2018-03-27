@@ -108,7 +108,32 @@ service Client {
   rpc AddPeer(AddPeerRequest) returns (AddPeerResponse) {}
   rpc GetReference(GetReferenceRequest) returns (GetReferenceResponse) {}
   rpc AddReference(AddReferenceRequest) returns (AddReferenceResponse) {}
+  rpc GetRemoteFile(GetRemoteFileRequest) returns (GetRemoteFileResponse) {}
 }
   // ipfs get <hash>
   // ipfs add <file>
   // ipfs peers
+
+service PublishBloomFilters {
+  // A Server-Side streaming RPC.
+  rpc SendCurrentRoutingTable(RoutingTable) returns (stream RoutingTable) {}
+}
+
+message RoutingTable {
+  repeated BloomFilter filters = 1;
+}
+
+message BloomFilter {
+  bytes data = 1;
+  // A list of peers already in table to prevent duplicate
+  map<string, bool> ids = 2;
+}
+
+message GetRemoteFileRequest {
+  int32 num_hops = 1;
+  string access_id = 2;
+}
+
+message GetRemoteFileResponse {
+  Document document = 1;  
+}
