@@ -15,7 +15,6 @@ import (
 	"github.com/pkg/errors"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
-  "time"
 )
 
 var ErrUnimplemented = errors.New("unimplemented")
@@ -111,7 +110,6 @@ func (s *Server) Listen(addr string) error {
 	grpcServer := grpc.NewServer(grpc.Creds(creds))
 	serverpb.RegisterNodeServer(grpcServer, s)
 	serverpb.RegisterClientServer(grpcServer, s)
-  serverpb.RegisterPublishBloomFiltersServer(grpcServer, s)
   go s.ReceiveNewRoutingTable()
 
 
@@ -125,7 +123,7 @@ func (s *Server) Listen(addr string) error {
 		return err
 	}
 
-	s.log.SetPrefix(color.BlueString(time.Now().String()) + " " + color.RedString(meta.Id) + " " + color.GreenString(l.Addr().String()) + " ")
+	s.log.SetPrefix(color.RedString(meta.Id) + " " + color.GreenString(l.Addr().String()) + " ")
 
 	s.log.Printf("Listening to %s", l.Addr().String())
 	if err := grpcServer.Serve(l); err != nil && err != grpc.ErrServerStopped {

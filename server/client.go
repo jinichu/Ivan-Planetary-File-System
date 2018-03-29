@@ -1,79 +1,33 @@
 package server
 
 import (
-	"context"
-	"crypto/aes"
-	"crypto/cipher"
-	"crypto/rand"
-	"crypto/sha1"
-	"crypto/sha256"
-	"encoding/asn1"
-	"encoding/base64"
-	"fmt"
-	"io"
-   "crypto/tls"
-	"google.golang.org/grpc"
-	"log"
-	"google.golang.org/grpc/credentials"
-	"proj2_f5w9a_h6v9a_q7w9a_r8u8_w1c0b/serverpb"
-	"strings"
-	"time"
+  "context"
+  "crypto/aes"
+  "crypto/cipher"
+  "crypto/rand"
+  "crypto/sha1"
+  "crypto/sha256"
+  "encoding/asn1"
+  "encoding/base64"
+  "fmt"
+  "io"
+  "proj2_f5w9a_h6v9a_q7w9a_r8u8_w1c0b/serverpb"
+  "strings"
+  "time"
 
-	"github.com/dgraph-io/badger"
-	"github.com/pkg/errors"
+  "github.com/dgraph-io/badger"
+  "github.com/pkg/errors"
 )
 
 func (s *Server) GetRemoteFile(ctx context.Context, in *serverpb.GetRemoteFileRequest) (*serverpb.GetRemoteFileResponse, error) {
-   num_hops := int32(in.NumHops)
-   access_id := in.AccessId
+  num_hops := int32(in.NumHops)
+  document_id := in.DocumentId
 
-   if num_hops > 0 {
-      // for each peer, get remote file with num hops - 1
-    // for _, conn := range s.mu.peerConns {
-    //   // make a request and decrement num hops
-    // 	fmt.Println("goign to make a request to get a doc")
-    //   client := serverpb.NewClientClient(conn)
-    //   args := &serverpb.GetRemoteFileRequest{
-    //     AccessId: access_id,
-    //     NumHops: num_hops - 1,
-    //   }
-    //   resp, err := client.GetRemoteFile(ctx, args)
-
-    //  	fmt.Println("this is their response", resp)
-    //   if err != nil {
-    //     fmt.Println(err)
-    //     return nil, err
-    //   } else {
-    //     if resp.GetDocument().GetContentType() == "directory" {
-    //       fmt.Println("Child documents:")
-    //       for k, v := range resp.GetDocument().GetChildren() {
-    //         fmt.Println(k + ": " + v)
-    //         return &serverpb.GetRemoteFileResponse{Document: &f}, nil
-    //       }
-    //     } else {
-    //       fmt.Printf("%s\n", resp.Document.GetData())
-    //       return &serverpb.GetRemoteFileResponse{Document: &f}, nil
-    //     }
-    //   }
-    // }
-    for _, meta := range s.mu.peerMeta {
-    	creds := credentials.NewTLS(&tls.Config{
-    		Rand:               rand.Reader,
-    		InsecureSkipVerify: true,
-    	})
-
-    	addr := meta.Addrs[0]
-
-    	ctx := context.TODO()
-    	ctxDial, _ := context.WithTimeout(ctx, 2*time.Second)
-    	conn, err := grpc.DialContext(ctxDial, addr, grpc.WithTransportCredentials(creds), grpc.WithBlock())
-
-    	if err != nil {
-    		log.Fatal(err)
-    	}      
-    	client := serverpb.NewClientClient(conn)
+  if num_hops > 0 {
+    for _, conn := range s.mu.peerConns {
+      client := serverpb.NewNodeClient(conn)
       args := &serverpb.GetRemoteFileRequest{
-        AccessId: access_id,
+        DocumentId: document_id,
         NumHops: num_hops - 1,
       }
       resp, err := client.GetRemoteFile(ctx, args)
@@ -81,31 +35,16 @@ func (s *Server) GetRemoteFile(ctx context.Context, in *serverpb.GetRemoteFileRe
       if err != nil {
         fmt.Println(err)
       } else {
-        if resp.GetDocument().GetContentType() == "directory" {
-          fmt.Println("Child documents:")
-          for k, v := range resp.GetDocument().GetChildren() {
-            fmt.Println(k + ": " + v)
-            return &serverpb.GetRemoteFileResponse{Document: resp.Document}, nil
-          }
-        } else {
-          return &serverpb.GetRemoteFileResponse{Document: resp.Document}, nil
-        }
+        return &serverpb.GetRemoteFileResponse{FileHash: resp.FileHash}, nil
       }
     }
     fmt.Println("couldn't find the document at all.")
+
     return nil, errors.New("missing Document")
-   } else {
+    } else {
       // get file and return it
-    var f serverpb.Document
-    documentId := strings.Split(in.GetAccessId(), ":")[0]
-    parts := strings.Split(in.GetAccessId(), ":")
-    if len(parts) < 2 {
-      return nil, errors.Errorf("AccessId should have a :")
-    }
-    accessKey, err := base64.StdEncoding.DecodeString(parts[1])
-    if err != nil {
-      return nil, err
-    }
+      var body []byte
+      documentId := in.DocumentId
     // Check if the file exists locally first
     if err := s.db.View(func(txn *badger.Txn) error {
       key := fmt.Sprintf("/document/%s", documentId)
@@ -113,27 +52,25 @@ func (s *Server) GetRemoteFile(ctx context.Context, in *serverpb.GetRemoteFileRe
       if err != nil {
         return err
       }
-      body, err := item.Value()
+      body, err = item.Value()
       if err != nil {
-        return err
-      }
-      if f, err = s.DecryptDocument(body, accessKey); err != nil {
         return err
       }
       return nil
     }); err != nil {
-    if err != badger.ErrKeyNotFound {
-      // Error wasn't an error relating to the document not being found locally. Return.
-      return nil, err
-    } else if err == badger.ErrKeyNotFound {
-      return nil, errors.New("missing Document")
+      if err != badger.ErrKeyNotFound {
+        // Error wasn't an error relating to the document not being found locally. Return.
+        return nil, err
+      } else if err == badger.ErrKeyNotFound {
+        return nil, errors.New("missing Document")
+      }
     }
+
+    resp := &serverpb.GetRemoteFileResponse{
+      FileHash: body,
+    }
+    return resp, nil
   }
-   resp := &serverpb.GetRemoteFileResponse{
-    Document: &f,
-   }
-   return resp, nil
- }
 }
 
 func (s *Server) Get(ctx context.Context, in *serverpb.GetRequest) (*serverpb.GetResponse, error) {
@@ -168,34 +105,32 @@ func (s *Server) Get(ctx context.Context, in *serverpb.GetRequest) (*serverpb.Ge
 			return nil, err
 		} else if err == badger.ErrKeyNotFound {
 			// TODO: Network check, does this document exist on the network? If so, return it (Bea)
-      num_hops, _ := s.checkNumHopsToGetToFile(in.GetAccessId())
+      num_hops, err := s.checkNumHopsToGetToFile(documentId)
 
-      if num_hops <= 0 {
-        return nil, errors.New("missing Document")
+      if err != nil {
+        return nil, err
       }
+
       args := &serverpb.GetRemoteFileRequest{
-        AccessId: in.GetAccessId(),
+        DocumentId: documentId,
         NumHops: int32(num_hops),
       }
 
       respRemote, err := s.GetRemoteFile(ctx,args)
       if err != nil {
-        fmt.Println("Get remote file err", err)
         return nil, err
       }
-      resp := &serverpb.GetResponse{
-      	Document: respRemote.Document,
+      if f, err = s.DecryptDocument(respRemote.FileHash, accessKey); err != nil {
+        fmt.Println("cannot decrypt document", err)
+        return nil, err
       }
-      return resp, nil
-      // make a request to get the file
-			// TODO: Then, decrypt the document and return it as a Document object (Jinny or Jonathan)
-		}
-	}
+    }
+  }
 
-	resp := &serverpb.GetResponse{
-		Document: &f,
-	}
-	return resp, nil
+  resp := &serverpb.GetResponse{
+    Document: &f,
+  }
+  return resp, nil
 }
 
 func (s *Server) Add(ctx context.Context, in *serverpb.AddRequest) (*serverpb.AddResponse, error) {
@@ -223,11 +158,11 @@ func (s *Server) Add(ctx context.Context, in *serverpb.AddRequest) (*serverpb.Ad
 		AccessId: accessId,
 	}
 
-  localMeta, err := s.NodeMeta()
-  if err != nil {
-    return nil, err
-  }
-  s.addToRoutingTable(localMeta.Id, accessId)
+	localMeta, err := s.NodeMeta()
+	if err != nil {
+		return nil, err
+	}
+	s.addToRoutingTable(localMeta.Id, hash)
 
 	return resp, nil
 }
