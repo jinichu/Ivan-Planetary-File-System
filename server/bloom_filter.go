@@ -1,25 +1,25 @@
 package server
 
 import (
-  "fmt"
-  "github.com/willf/bloom"
-  "proj2_f5w9a_h6v9a_q7w9a_r8u8_w1c0b/serverpb"
-   "context"
-  "github.com/fatih/color"
-   "log"
-  "time"
-   "io"
-  "github.com/pkg/errors"
+    "fmt"
+    "github.com/willf/bloom"
+    "proj2_f5w9a_h6v9a_q7w9a_r8u8_w1c0b/serverpb"
+    "context"
+    "github.com/fatih/color"
+    "log"
+    "time"
+    "io"
+    "github.com/pkg/errors"
 )
 
 const (
-  n = 10
-  load = 20
-  num_keys = 5
+    n = 10
+    load = 20
+    num_keys = 5
 )
 
 func (s *Server) createNewBloomFilter() *bloom.BloomFilter {
-  return bloom.New(load * n, 5)
+    return bloom.New(load * n, 5)
 }
 
 func (s *Server) addToRoutingTable(id string, file_hash string) error {
