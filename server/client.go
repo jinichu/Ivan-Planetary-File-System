@@ -1,72 +1,72 @@
 package server
 
 import (
-    "context"
-    "crypto/aes"
-    "crypto/cipher"
-    "crypto/rand"
-    "crypto/sha1"
-    "crypto/sha256"
-    "encoding/asn1"
-    "encoding/base64"
-    "fmt"
-    "io"
-    "proj2_f5w9a_h6v9a_q7w9a_r8u8_w1c0b/serverpb"
-    "strings"
-    "time"
+	"context"
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/rand"
+	"crypto/sha1"
+	"crypto/sha256"
+	"encoding/asn1"
+	"encoding/base64"
+	"fmt"
+	"io"
+	"proj2_f5w9a_h6v9a_q7w9a_r8u8_w1c0b/serverpb"
+	"strings"
+	"time"
 
-    "github.com/dgraph-io/badger"
-    "github.com/pkg/errors"
+	"github.com/dgraph-io/badger"
+	"github.com/pkg/errors"
 )
 
 func (s *Server) GetRemoteFile(ctx context.Context, in *serverpb.GetRemoteFileRequest) (*serverpb.GetRemoteFileResponse, error) {
-    num_hops := int32(in.NumHops)
-    document_id := in.DocumentId
+	num_hops := int32(in.NumHops)
+	document_id := in.DocumentId
 
-    if num_hops > 0 {
-        for _, conn := range s.mu.peerConns {
-            client := serverpb.NewNodeClient(conn)
-            args := &serverpb.GetRemoteFileRequest{
-                DocumentId: document_id,
-                NumHops: num_hops - 1,
-            }
-            resp, err := client.GetRemoteFile(ctx, args)
+	if num_hops > 0 {
+		for _, conn := range s.mu.peerConns {
+			client := serverpb.NewNodeClient(conn)
+			args := &serverpb.GetRemoteFileRequest{
+				DocumentId: document_id,
+				NumHops:    num_hops - 1,
+			}
+			resp, err := client.GetRemoteFile(ctx, args)
 
-            if err != nil {
-                fmt.Println(err)
-            } else {
-                return &serverpb.GetRemoteFileResponse{FileHash: resp.FileHash}, nil
-            }
-        }
-        fmt.Println("couldn't find the document at all.")
+			if err != nil {
+				fmt.Println(err)
+			} else {
+				return &serverpb.GetRemoteFileResponse{FileHash: resp.FileHash}, nil
+			}
+		}
+		fmt.Println("couldn't find the document at all.")
 
         return nil, errors.New("missing Document")
-    } else {
-        var body []byte
-        documentId := in.DocumentId
-        if err := s.db.View(func(txn *badger.Txn) error {
-            key := fmt.Sprintf("/document/%s", documentId)
-            item, err := txn.Get([]byte(key))
-            if err != nil {
-                return err
-            }
-            body, err = item.Value()
-            if err != nil {
-                return err
-            }
-            return nil
-        }); err != nil { 
-                if err != badger.ErrKeyNotFound {
-                    return nil, err
-                } else if err == badger.ErrKeyNotFound {
-                    return nil, errors.New("missing Document")
-                }
-            }
-            resp := &serverpb.GetRemoteFileResponse{
-            FileHash: body,
-        }
-        return resp, nil
-    }
+	} else {
+		var body []byte
+		documentId := in.DocumentId
+		if err := s.db.View(func(txn *badger.Txn) error {
+			key := fmt.Sprintf("/document/%s", documentId)
+			item, err := txn.Get([]byte(key))
+			if err != nil {
+				return err
+			}
+			body, err = item.Value()
+			if err != nil {
+				return err
+			}
+			return nil
+		}); err != nil {
+			if err != badger.ErrKeyNotFound {
+				return nil, err
+			} else if err == badger.ErrKeyNotFound {
+				return nil, errors.New("missing Document")
+			}
+		}
+		resp := &serverpb.GetRemoteFileResponse{
+			FileHash: body,
+		}
+		return resp, nil
+	}
 }
 
 func (s *Server) Get(ctx context.Context, in *serverpb.GetRequest) (*serverpb.GetResponse, error) {
@@ -101,31 +101,31 @@ func (s *Server) Get(ctx context.Context, in *serverpb.GetRequest) (*serverpb.Ge
 			return nil, err
 		} else if err == badger.ErrKeyNotFound {
 			// TODO: Network check, does this document exist on the network? If so, return it (Bea)
-            num_hops, err := s.checkNumHopsToGetToFile(documentId)
+			num_hops, err := s.checkNumHopsToGetToFile(documentId)
 
-            if err != nil {
-                return nil, err
-            }
+			if err != nil {
+				return nil, err
+			}
 
-            args := &serverpb.GetRemoteFileRequest{
-                DocumentId: documentId,
-                NumHops: int32(num_hops),
-            }
+			args := &serverpb.GetRemoteFileRequest{
+				DocumentId: documentId,
+				NumHops:    int32(num_hops),
+			}
 
-            respRemote, err := s.GetRemoteFile(ctx,args)
-            if err != nil {
-                return nil, err
-            }
-            if f, err = s.DecryptDocument(respRemote.FileHash, accessKey); err != nil {
-                fmt.Println("cannot decrypt document", err)
-                return nil, err
-            }
-        }
-    }
-    resp := &serverpb.GetResponse{
-        Document: &f,
-    }
-    return resp, nil
+			respRemote, err := s.GetRemoteFile(ctx, args)
+			if err != nil {
+				return nil, err
+			}
+			if f, err = s.DecryptDocument(respRemote.FileHash, accessKey); err != nil {
+				fmt.Println("cannot decrypt document", err)
+				return nil, err
+			}
+		}
+	}
+	resp := &serverpb.GetResponse{
+		Document: &f,
+	}
+	return resp, nil
 }
 
 func (s *Server) Add(ctx context.Context, in *serverpb.AddRequest) (*serverpb.AddResponse, error) {

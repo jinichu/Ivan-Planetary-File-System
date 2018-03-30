@@ -32,12 +32,12 @@ type Server struct {
 	mu struct {
 		sync.Mutex
 
-		l          net.Listener
-		grpcServer *grpc.Server
-		peerMeta   map[string]serverpb.NodeMeta
-		peers      map[string]serverpb.NodeClient
-		peerConns  map[string]*grpc.ClientConn
-    routingTables map[string]serverpb.RoutingTable
+		l             net.Listener
+		grpcServer    *grpc.Server
+		peerMeta      map[string]serverpb.NodeMeta
+		peers         map[string]serverpb.NodeClient
+		peerConns     map[string]*grpc.ClientConn
+		routingTables map[string]serverpb.RoutingTable
 	}
 }
 
@@ -50,7 +50,7 @@ func New(c serverpb.NodeConfig) (*Server, error) {
 	s.mu.peerMeta = map[string]serverpb.NodeMeta{}
 	s.mu.peers = map[string]serverpb.NodeClient{}
 	s.mu.peerConns = map[string]*grpc.ClientConn{}
-  s.mu.routingTables = map[string]serverpb.RoutingTable{}
+	s.mu.routingTables = map[string]serverpb.RoutingTable{}
 
 	if len(c.Path) == 0 {
 		return nil, errors.Errorf("config: path must not be empty")
@@ -110,8 +110,7 @@ func (s *Server) Listen(addr string) error {
 	grpcServer := grpc.NewServer(grpc.Creds(creds))
 	serverpb.RegisterNodeServer(grpcServer, s)
 	serverpb.RegisterClientServer(grpcServer, s)
-  go s.ReceiveNewRoutingTable()
-
+	go s.ReceiveNewRoutingTable()
 
 	s.mu.Lock()
 	s.mu.l = l
