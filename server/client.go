@@ -20,14 +20,14 @@ import (
 )
 
 func (s *Server) GetRemoteFile(ctx context.Context, in *serverpb.GetRemoteFileRequest) (*serverpb.GetRemoteFileResponse, error) {
-	num_hops := int32(in.NumHops)
-	document_id := in.DocumentId
+	num_hops := int32(in.GetNumHops())
+	documentID := in.GetDocumentId()
 
 	if num_hops > 0 {
 		for _, conn := range s.mu.peerConns {
 			client := serverpb.NewNodeClient(conn)
 			args := &serverpb.GetRemoteFileRequest{
-				DocumentId: document_id,
+				DocumentId: documentID,
 				NumHops:    num_hops - 1,
 			}
 			resp, err := client.GetRemoteFile(ctx, args)
@@ -40,12 +40,11 @@ func (s *Server) GetRemoteFile(ctx context.Context, in *serverpb.GetRemoteFileRe
 		}
 		fmt.Println("couldn't find the document at all.")
 
-        return nil, errors.New("missing Document")
+		return nil, errors.New("missing Document")
 	} else {
 		var body []byte
-		documentId := in.DocumentId
 		if err := s.db.View(func(txn *badger.Txn) error {
-			key := fmt.Sprintf("/document/%s", documentId)
+			key := fmt.Sprintf("/document/%s", documentID)
 			item, err := txn.Get([]byte(key))
 			if err != nil {
 				return err
