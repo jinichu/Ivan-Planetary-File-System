@@ -52,6 +52,8 @@ func (s *Server) GetRemoteFile(ctx context.Context, req *serverpb.GetRemoteFileR
 				continue
 			}
 
+			//TODO: call caching code here.
+
 			return resp, nil
 		}
 		return nil, errors.Errorf("failed to find document: %s", documentID)
