@@ -7,6 +7,7 @@ import (
 	"crypto/x509"
 	"log"
 	"net"
+	"proj2_f5w9a_h6v9a_q7w9a_r8u8_w1c0b/config"
 	"proj2_f5w9a_h6v9a_q7w9a_r8u8_w1c0b/serverpb"
 	"strconv"
 	"time"
@@ -73,7 +74,14 @@ func (s *Server) connectNode(ctx context.Context, meta serverpb.NodeMeta) (*grpc
 			return nil, err
 		}
 		ctx, _ := context.WithTimeout(ctx, dialTimeout)
-		conn, err = grpc.DialContext(ctx, addr, grpc.WithTransportCredentials(creds), grpc.WithBlock())
+		conn, err = grpc.DialContext(ctx, addr,
+			grpc.WithTransportCredentials(creds),
+			grpc.WithBlock(),
+			grpc.WithDefaultCallOptions(
+				grpc.MaxCallRecvMsgSize(int(config.GRPCMsgSize)),
+				grpc.MaxCallSendMsgSize(int(config.GRPCMsgSize)),
+			),
+		)
 		if err != nil {
 			s.log.Printf("error dialing %+v: %+v", addr, err)
 			continue
@@ -243,7 +251,14 @@ func (s *Server) TestConn() (*grpc.ClientConn, error) {
 	})
 	ctx := context.Background()
 	ctxDial, _ := context.WithTimeout(ctx, dialTimeout)
-	return grpc.DialContext(ctxDial, addr, grpc.WithTransportCredentials(creds), grpc.WithBlock())
+	return grpc.DialContext(ctxDial, addr,
+		grpc.WithTransportCredentials(creds),
+		grpc.WithBlock(),
+		grpc.WithDefaultCallOptions(
+			grpc.MaxCallRecvMsgSize(int(config.GRPCMsgSize)),
+			grpc.MaxCallSendMsgSize(int(config.GRPCMsgSize)),
+		),
+	)
 }
 
 // BootstrapAddNode adds a node by using an address to do an insecure connection
@@ -260,7 +275,14 @@ func (s *Server) BootstrapAddNode(addr string) error {
 	})
 	ctx := context.TODO()
 	ctxDial, _ := context.WithTimeout(ctx, dialTimeout)
-	conn, err := grpc.DialContext(ctxDial, addr, grpc.WithTransportCredentials(creds), grpc.WithBlock())
+	conn, err := grpc.DialContext(ctxDial, addr,
+		grpc.WithTransportCredentials(creds),
+		grpc.WithBlock(),
+		grpc.WithDefaultCallOptions(
+			grpc.MaxCallRecvMsgSize(int(config.GRPCMsgSize)),
+			grpc.MaxCallSendMsgSize(int(config.GRPCMsgSize)),
+		),
+	)
 	if err != nil {
 		return err
 	}

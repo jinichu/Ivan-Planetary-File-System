@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"proj2_f5w9a_h6v9a_q7w9a_r8u8_w1c0b/config"
 	"proj2_f5w9a_h6v9a_q7w9a_r8u8_w1c0b/serverpb"
 	"proj2_f5w9a_h6v9a_q7w9a_r8u8_w1c0b/stopper"
 	"strings"
@@ -136,7 +137,10 @@ func (s *Server) Listen(addr string) error {
 	}
 
 	//creds := credentials.NewServerTLSFromCert(s.cert)
-	grpcServer := grpc.NewServer()
+	grpcServer := grpc.NewServer(
+		grpc.MaxRecvMsgSize(int(config.GRPCMsgSize)),
+		grpc.MaxSendMsgSize(int(config.GRPCMsgSize)),
+	)
 	serverpb.RegisterNodeServer(grpcServer, s)
 	serverpb.RegisterClientServer(grpcServer, s)
 	go s.ReceiveNewRoutingTable()

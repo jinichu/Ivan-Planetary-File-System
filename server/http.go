@@ -118,7 +118,10 @@ func (s *Server) resolveDoc(ctx context.Context, id string, path []string) (*ser
 		return nil, err
 	}
 	doc := resp.GetDocument()
-	if len(path) == 0 || len(path[0]) == 0 {
+	if len(path) == 0 {
+		return doc, nil
+	}
+	if len(path[0]) == 0 {
 		if doc.ContentType == "directory" {
 			index, ok := doc.Children["index.html"]
 			if ok {

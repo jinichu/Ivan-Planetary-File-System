@@ -11,6 +11,7 @@ import (
 	"mime"
 	"os"
 	"path/filepath"
+	"proj2_f5w9a_h6v9a_q7w9a_r8u8_w1c0b/config"
 	"proj2_f5w9a_h6v9a_q7w9a_r8u8_w1c0b/serverpb"
 	"strings"
 	"time"
@@ -32,7 +33,14 @@ func main() {
 
 	ctx := context.TODO()
 	ctxDial, _ := context.WithTimeout(ctx, 2*time.Second)
-	conn, err := grpc.DialContext(ctxDial, os.Args[1], grpc.WithTransportCredentials(creds), grpc.WithBlock())
+	conn, err := grpc.DialContext(ctxDial, os.Args[1],
+		grpc.WithTransportCredentials(creds),
+		grpc.WithBlock(),
+		grpc.WithDefaultCallOptions(
+			grpc.MaxCallRecvMsgSize(int(config.GRPCMsgSize)),
+			grpc.MaxCallSendMsgSize(int(config.GRPCMsgSize)),
+		),
+	)
 
 	if err != nil {
 		log.Fatal(err)
