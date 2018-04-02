@@ -73,11 +73,7 @@ func (s *Server) Add(ctx context.Context, in *serverpb.AddRequest) (*serverpb.Ad
 		AccessId: accessId,
 	}
 
-	localMeta, err := s.NodeMeta()
-	if err != nil {
-		return nil, err
-	}
-	if err := s.addToRoutingTable(localMeta.Id, hash); err != nil {
+	if err := s.addToRoutingTable(hash); err != nil {
 		return nil, err
 	}
 
@@ -121,6 +117,7 @@ func (s *Server) GetReference(ctx context.Context, in *serverpb.GetReferenceRequ
 
 	resp, err := s.GetRemoteReference(ctx, &serverpb.GetRemoteReferenceRequest{
 		ReferenceId: in.ReferenceId,
+		NumHops:     -1,
 	})
 	if err != nil {
 		return nil, err
@@ -186,7 +183,9 @@ func (s *Server) AddReference(ctx context.Context, in *serverpb.AddReferenceRequ
 		return nil, err
 	}
 
-	// TODO: Add reference to bloom filter (Bea)
+	if err := s.addToRoutingTable(referenceId); err != nil {
+		return nil, err
+	}
 
 	resp := &serverpb.AddReferenceResponse{
 		ReferenceId: referenceId,

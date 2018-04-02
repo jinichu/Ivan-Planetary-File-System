@@ -2,7 +2,12 @@ package integration
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"encoding/pem"
 	"fmt"
+	"proj2_f5w9a_h6v9a_q7w9a_r8u8_w1c0b/server"
 	"proj2_f5w9a_h6v9a_q7w9a_r8u8_w1c0b/serverpb"
 	"proj2_f5w9a_h6v9a_q7w9a_r8u8_w1c0b/util"
 	"reflect"
@@ -125,6 +130,69 @@ func TestClusterFetchDocument(t *testing.T) {
 				}
 				if !reflect.DeepEqual(resp.Document, &doc) {
 					return errors.Errorf("%d. got %+v; wanted %+v", i, resp.Document, &doc)
+				}
+				return nil
+			})
+		}
+	}
+}
+
+func generatePrivateKey(t *testing.T) []byte {
+	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyPEM := pem.EncodeToMemory(server.PemBlockForKey(priv))
+	return keyPEM
+}
+
+func TestClusterFetchReference(t *testing.T) {
+	const nodes = 5
+	ts := NewTestCluster(t, nodes)
+	defer ts.Close()
+
+	ctx := context.Background()
+
+	files := map[string]string{}
+
+	for i, node := range ts.Nodes {
+		key := generatePrivateKey(t)
+		data := fmt.Sprintf("Reference from node %d", i)
+		resp, err := node.AddReference(ctx, &serverpb.AddReferenceRequest{
+			PrivKey: key,
+			Record:  data,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		files[resp.ReferenceId] = data
+
+		// Make sure local node has the file.
+		{
+			resp, err := node.GetReference(ctx, &serverpb.GetReferenceRequest{
+				ReferenceId: resp.ReferenceId,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if resp.Reference.Value != data {
+				t.Fatalf("%d. got %+v; wanted %+v", i, resp.Reference.Value, data)
+			}
+		}
+	}
+
+	// Check to make sure all nodes can access other nodes files.
+	for i, node := range ts.Nodes {
+		for referenceID, doc := range files {
+			util.SucceedsSoon(t, func() error {
+				resp, err := node.GetReference(ctx, &serverpb.GetReferenceRequest{
+					ReferenceId: referenceID,
+				})
+				if err != nil {
+					return errors.Wrapf(err, "fetching reference %q, from node %d: %s", referenceID, i, doc)
+				}
+				if resp.Reference.Value != doc {
+					return errors.Errorf("%d. got %+v; wanted %+v", i, resp, doc)
 				}
 				return nil
 			})

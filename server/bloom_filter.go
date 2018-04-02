@@ -72,7 +72,13 @@ func (s *Server) peersWithFile(documentID string) []Route {
 	return routes
 }
 
-func (s *Server) addToRoutingTable(id string, documentID string) error {
+func (s *Server) addToRoutingTable(documentID string) error {
+	meta, err := s.NodeMeta()
+	if err != nil {
+		return err
+	}
+	id := meta.Id
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

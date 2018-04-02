@@ -30,7 +30,7 @@ func (s *Server) GetRemoteFile(ctx context.Context, req *serverpb.GetRemoteFileR
 		return nil
 	}); err == badger.ErrKeyNotFound {
 		if req.GetNumHops() == 0 {
-			return nil, ErrNumHops
+			return nil, errors.Wrapf(ErrNumHops, "documentID: %s", documentID)
 		}
 
 		// Look document up via the network.
@@ -84,15 +84,14 @@ func (s *Server) GetRemoteReference(ctx context.Context, req *serverpb.GetRemote
 		}
 		return nil
 	}); err == badger.ErrKeyNotFound {
-		// TODO: Do a network lookup for this reference (Bea)
-		if req.GetNumHops() <= 0 {
-			return nil, ErrNumHops
+		if req.GetNumHops() == 0 {
+			return nil, errors.Wrapf(ErrNumHops, "referenceID: %s", referenceID)
 		}
 
 		// Look reference up via the network.
 		routes := s.peersWithFile(referenceID)
 		if len(routes) == 0 {
-			return nil, errors.Errorf("no routes to document: %s", referenceID)
+			return nil, errors.Errorf("no routes to reference: %s", referenceID)
 		}
 		for _, route := range routes {
 			numHops := req.GetNumHops()
