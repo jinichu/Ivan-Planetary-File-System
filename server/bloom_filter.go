@@ -11,6 +11,10 @@ import (
 	"github.com/willf/bloom"
 )
 
+var (
+	RoutingTableInterval = 2 * time.Second
+)
+
 const (
 	NumberOfKeys             = 100000
 	FalsePositiveProbability = 0.01
@@ -112,7 +116,7 @@ func (s *Server) GetRoutingTable(ctx context.Context, previousRT *serverpb.Routi
 }
 
 func (s *Server) ReceiveNewRoutingTable() {
-	ticker := time.NewTicker(heartBeatInterval)
+	ticker := time.NewTicker(RoutingTableInterval)
 	for {
 		select {
 		case <-ticker.C:

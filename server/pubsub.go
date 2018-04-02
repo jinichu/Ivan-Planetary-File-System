@@ -164,5 +164,17 @@ func (s *Server) Publish(ctx context.Context, req *serverpb.PublishRequest) (*se
 }
 
 func (s *Server) SubscribeClient(req *serverpb.SubscribeRequest, stream serverpb.Client_SubscribeClientServer) error {
+	req.NumHops = -1
 	return s.Subscribe(req, stream)
+}
+
+func (s *Server) NumListeners(referenceID string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	ch, ok := s.mu.channels[referenceID]
+	if !ok {
+		return 0
+	}
+	return len(ch.listeners)
 }

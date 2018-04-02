@@ -7,10 +7,12 @@ import (
 	"crypto/rand"
 	"encoding/pem"
 	"fmt"
+	mrand "math/rand"
 	"proj2_f5w9a_h6v9a_q7w9a_r8u8_w1c0b/server"
 	"proj2_f5w9a_h6v9a_q7w9a_r8u8_w1c0b/serverpb"
 	"proj2_f5w9a_h6v9a_q7w9a_r8u8_w1c0b/util"
 	"reflect"
+	"sync"
 	"testing"
 
 	"github.com/pkg/errors"
@@ -198,4 +200,111 @@ func TestClusterFetchReference(t *testing.T) {
 			})
 		}
 	}
+}
+
+func TestClusterPubSub(t *testing.T) {
+	const nodes = 5
+	ts := NewTestCluster(t, nodes)
+	defer ts.Close()
+
+	ctx := context.Background()
+
+	i := mrand.Intn(len(ts.Nodes))
+	t.Logf("node picked to publish: %d", i)
+	node := ts.Nodes[i]
+
+	key := generatePrivateKey(t)
+	data := fmt.Sprintf("Reference on node %d", i)
+	resp, err := node.AddReference(ctx, &serverpb.AddReferenceRequest{
+		PrivKey: key,
+		Record:  data,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	referenceID := resp.ReferenceId
+
+	var mu struct {
+		sync.Mutex
+
+		seen map[int]*serverpb.Message
+	}
+	mu.seen = map[int]*serverpb.Message{}
+
+	// Check to make sure all nodes can access other nodes references.
+	for i, node := range ts.Nodes {
+		util.SucceedsSoon(t, func() error {
+			_, err := node.GetReference(ctx, &serverpb.GetReferenceRequest{
+				ReferenceId: referenceID,
+			})
+			return err
+		})
+
+		conn, err := node.TestConn()
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer conn.Close()
+
+		client := serverpb.NewClientClient(conn)
+		stream, err := client.SubscribeClient(ctx, &serverpb.SubscribeRequest{
+			ChannelId: referenceID,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		i := i
+
+		go func() {
+			msg, err := stream.Recv()
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			mu.Lock()
+			defer mu.Unlock()
+
+			mu.seen[i] = msg
+		}()
+	}
+
+	util.SucceedsSoon(t, func() error {
+		n := node.NumListeners(referenceID)
+		if n != len(ts.Nodes) {
+			return errors.Errorf("NumListeners() = %d; not %d", n, len(ts.Nodes))
+		}
+		return nil
+	})
+
+	msg := "some message woo"
+	{
+		resp, err := node.Publish(ctx, &serverpb.PublishRequest{
+			PrivKey: key,
+			Message: msg,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resp.Listeners != int32(len(ts.Nodes)) {
+			t.Fatalf("Publish sent to %d listeners; not %d", resp.Listeners, len(ts.Nodes))
+		}
+	}
+
+	util.SucceedsSoon(t, func() error {
+		mu.Lock()
+		defer mu.Unlock()
+
+		if len(mu.seen) != len(ts.Nodes) {
+			return errors.Errorf("len seen != len Nodes; %#v", mu.seen)
+		}
+
+		for i, got := range mu.seen {
+			if got.Message != msg {
+				return errors.Errorf("%d. message = %+v; want %q", i, got, msg)
+			}
+		}
+		return nil
+	})
 }
