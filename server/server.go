@@ -5,17 +5,21 @@ import (
 	"crypto/tls"
 	"log"
 	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"proj2_f5w9a_h6v9a_q7w9a_r8u8_w1c0b/serverpb"
 	"proj2_f5w9a_h6v9a_q7w9a_r8u8_w1c0b/stopper"
+	"strings"
 	"sync"
 
 	"github.com/dgraph-io/badger"
 	"github.com/fatih/color"
 	"github.com/pkg/errors"
+
+	"golang.org/x/sync/errgroup"
+
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
 )
 
 var ErrUnimplemented = errors.New("unimplemented")
@@ -117,8 +121,8 @@ func (s *Server) Listen(addr string) error {
 		return err
 	}
 
-	creds := credentials.NewServerTLSFromCert(s.cert)
-	grpcServer := grpc.NewServer(grpc.Creds(creds))
+	//creds := credentials.NewServerTLSFromCert(s.cert)
+	grpcServer := grpc.NewServer()
 	serverpb.RegisterNodeServer(grpcServer, s)
 	serverpb.RegisterClientServer(grpcServer, s)
 	go s.ReceiveNewRoutingTable()
@@ -136,8 +140,25 @@ func (s *Server) Listen(addr string) error {
 	s.log.SetPrefix(color.RedString(meta.Id) + " " + color.GreenString(l.Addr().String()) + " ")
 
 	s.log.Printf("Listening to %s", l.Addr().String())
-	if err := grpcServer.Serve(l); err != nil && err != grpc.ErrServerStopped {
-		return err
-	}
-	return nil
+	var g errgroup.Group
+	g.Go(func() error {
+		handler := http.NewServeMux()
+		httpServer := http.Server{
+			Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.ProtoMajor == 2 && strings.HasPrefix(
+					r.Header.Get("Content-Type"), "application/grpc") {
+					grpcServer.ServeHTTP(w, r)
+				} else {
+					handler.ServeHTTP(w, r)
+				}
+			}),
+			TLSConfig: &tls.Config{
+				Certificates: []tls.Certificate{
+					*s.cert,
+				},
+			},
+		}
+		return httpServer.ServeTLS(l, "", "")
+	})
+	return g.Wait()
 }
