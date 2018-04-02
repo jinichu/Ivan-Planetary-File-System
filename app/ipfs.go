@@ -66,6 +66,10 @@ func start(client serverpb.ClientClient, ctx context.Context) {
 			peers(cmd, client, ctx)
 		case "reference":
 			reference(cmd, client, ctx)
+		case "publish":
+			publish(cmd, client, ctx)
+		case "subscribe":
+			subscribe(cmd, client, ctx)
 		case "help":
 			fmt.Printf("\n 🚀  List of options: \n\n")
 			fmt.Println("	get <access_id>		  		   Fetch a document")
@@ -76,12 +80,14 @@ func start(client serverpb.ClientClient, ctx context.Context) {
 			fmt.Println("	peers add <node_id>	  		   Add a peer to this node")
 			fmt.Println("	reference get <reference_id>		   Fetch what that this reference points to")
 			fmt.Println("	reference add <record> <path/to/priv_key>  Add or update a reference")
+			fmt.Println("	publish <message> <path/to/priv_key>	   Publish a message on a channel")
+			fmt.Println("	subscribe <reference_id>		   Listen for messages on a channel")
 			fmt.Printf("	quit					   Exit the program\n\n")
 		case "quit":
 			fmt.Println("Exiting program... Goodbye. 🌙")
 			os.Exit(1)
 		default:
-			fmt.Println("Invalid command. Type 'help' to list all options.")
+			fmt.Println("Invalid command. Type 'help' to list all options. 👽")
 		}
 	}
 }
@@ -260,6 +266,71 @@ func reference(cmd []string, client serverpb.ClientClient, ctx context.Context) 
 		fmt.Println("Please specify a record and private key.")
 	} else {
 		fmt.Println("Invalid command.")
+	}
+}
+
+func publish(cmd []string, client serverpb.ClientClient, ctx context.Context) {
+	if len(cmd) != 3 {
+		fmt.Println("Incorrect number of arguments.")
+		return
+	}
+	var privateBody []byte
+	privatePath := cmd[2]
+
+	privateBody, err := ioutil.ReadFile(privatePath)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	args := &serverpb.PublishRequest{
+		PrivKey: privateBody,
+		Message: cmd[1],
+	}
+	resp, err := client.Publish(ctx, args)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	fmt.Printf("Successfully published message with %d listeners. 🌎\n", resp.GetListeners())
+}
+
+func subscribe(cmd []string, client serverpb.ClientClient, ctx context.Context) {
+	if len(cmd) != 2 {
+		fmt.Println("Incorrect number of arguments.")
+		return
+	}
+	args := &serverpb.SubscribeRequest{
+		ChannelId: cmd[1],
+	}
+
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	stream, err := client.SubscribeClient(ctx, args)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	fmt.Println("Listening for messages... Press enter to stop. 📡")
+
+	go func() {
+		for {
+			msg, err := stream.Recv()
+			if err != nil {
+				fmt.Println(err)
+				return
+			}
+			fmt.Println(msg.Message)
+		}
+	}()
+
+	for {
+		reader := bufio.NewReader(os.Stdin)
+		input, _ := reader.ReadString('\n')
+		if input != "" {
+			return
+		}
 	}
 }
 
