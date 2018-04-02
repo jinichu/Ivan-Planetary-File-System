@@ -26,13 +26,6 @@ type Route struct {
 	NumHops int32
 }
 
-func (s *Server) TestRTs() map[string]serverpb.RoutingTable {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	return s.mu.routingTables
-}
-
 func (s *Server) peersWithFile(documentID string) []Route {
 	s.mu.Lock()
 	defer s.mu.Unlock()
