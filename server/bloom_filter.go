@@ -2,10 +2,12 @@ package server
 
 import (
 	"context"
+	"path"
 	"proj2_f5w9a_h6v9a_q7w9a_r8u8_w1c0b/serverpb"
 	"sort"
 	"time"
 
+	"github.com/dgraph-io/badger"
 	"github.com/fatih/color"
 	"github.com/pkg/errors"
 	"github.com/willf/bloom"
@@ -315,4 +317,38 @@ func mergeFilters(bf0 *serverpb.BloomFilter, bf1 *serverpb.BloomFilter) (*server
 	}
 
 	return &serverpb.BloomFilter{Data: mergedFilter}, nil
+}
+
+func (s *Server) loadRoutingTable() error {
+	if err := s.db.View(func(txn *badger.Txn) error {
+		it := txn.NewIterator(badger.DefaultIteratorOptions)
+		defer it.Close()
+
+		{
+			prefix := []byte("/document/")
+			for it.Seek(prefix); it.ValidForPrefix(prefix); it.Next() {
+				item := it.Item()
+				id := path.Base(string(item.Key()))
+				if err := s.addToRoutingTable(id); err != nil {
+					return err
+				}
+			}
+		}
+
+		{
+			prefix := []byte("/reference/")
+			for it.Seek(prefix); it.ValidForPrefix(prefix); it.Next() {
+				item := it.Item()
+				id := path.Base(string(item.Key()))
+				if err := s.addToRoutingTable(id); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	return nil
 }

@@ -89,6 +89,9 @@ func New(c serverpb.NodeConfig) (*Server, error) {
 	}
 
 	s.setupHTTP()
+	if err := s.loadRoutingTable(); err != nil {
+		return nil, err
+	}
 
 	return s, nil
 }
