@@ -81,6 +81,9 @@ func (s *Server) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	err := errors.New("shutting down...")
+	s.log.Printf("%v", err)
+
 	if s.mu.grpcServer != nil {
 		s.mu.grpcServer.Stop()
 	}

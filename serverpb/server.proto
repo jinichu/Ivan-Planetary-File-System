@@ -35,7 +35,7 @@ service Node {
   rpc HeartBeat(HeartBeatRequest) returns (HeartBeatResponse) {}
   rpc Meta(MetaRequest) returns (NodeMeta) {}
   rpc GetRemoteFile(GetRemoteFileRequest) returns (GetRemoteFileResponse) {}
-  rpc SendCurrentRoutingTable(RoutingTable) returns (stream RoutingTable) {}
+  rpc GetRoutingTable(RoutingTable) returns (RoutingTable) {}
 }
 
 message Document {
@@ -129,5 +129,5 @@ message GetRemoteFileRequest {
 }
 
 message GetRemoteFileResponse {
-  bytes file_hash = 1;  
+  bytes file_hash = 1;
 }

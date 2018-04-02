@@ -3,13 +3,12 @@ package server
 import (
 	"context"
 	"fmt"
+	"proj2_f5w9a_h6v9a_q7w9a_r8u8_w1c0b/serverpb"
+	"time"
+
 	"github.com/fatih/color"
 	"github.com/pkg/errors"
 	"github.com/willf/bloom"
-	"io"
-	"log"
-	"proj2_f5w9a_h6v9a_q7w9a_r8u8_w1c0b/serverpb"
-	"time"
 )
 
 const (
@@ -54,46 +53,34 @@ func (s *Server) addToRoutingTable(id string, file_hash string) error {
 }
 
 // send change
-func (s *Server) SendCurrentRoutingTable(previousRT *serverpb.RoutingTable, stream serverpb.Node_SendCurrentRoutingTableServer) error {
-	routing_table, err := s.getLocalRT()
+func (s *Server) GetRoutingTable(ctx context.Context, previousRT *serverpb.RoutingTable) (*serverpb.RoutingTable, error) {
+	routingTable, err := s.getLocalRT()
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if err := stream.Send(routing_table); err != nil {
-		log.Fatalf("Failed to send a note: %v", err)
-	}
-	return nil
+	return routingTable, nil
 }
 
-func (s *Server) ReceiveNewRoutingTable() error {
-	go func() {
-		for {
-			for metaId, conn := range s.mu.peerConns {
-				currentRoutingTableForPeer := s.mu.routingTables[metaId]
+func (s *Server) ReceiveNewRoutingTable() {
+	for {
+		s.log.Printf("fetching routing tables...")
+		for metaId, conn := range s.mu.peerConns {
+			client := serverpb.NewNodeClient(conn)
 
-				client := serverpb.NewNodeClient(conn)
+			ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
 
-				ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
+			if err := s.receiveTableOfPeer(ctx, metaId, client); err != nil {
+				s.log.Printf("get routing table error: %s: %+v", color.RedString(metaId), err)
 
-				previousRt := &serverpb.RoutingTable{Filters: currentRoutingTableForPeer.Filters}
-				stream, err := client.SendCurrentRoutingTable(ctx, previousRt)
+				s.mu.Lock()
+				delete(s.mu.routingTables, metaId)
+				s.mu.Unlock()
 
-				if err != nil {
-					s.log.Printf("send current routing table error: %s: %+v", color.RedString(metaId), err)
-					s.mu.Lock()
-					delete(s.mu.routingTables, metaId)
-					s.mu.Unlock()
-					if err := conn.Close(); err != nil {
-						s.log.Printf("failed to close connection: %s: %+v", color.RedString(metaId), err)
-					}
-					return
-				}
-				s.receiveTableOfPeer(stream)
+				continue
 			}
-			time.Sleep(heartBeatInterval)
 		}
-	}()
-	return nil
+		time.Sleep(heartBeatInterval)
+	}
 }
 
 // helpers
@@ -114,7 +101,7 @@ func (s *Server) getLocalRT() (*serverpb.RoutingTable, error) {
 	return &serverpb.RoutingTable{Filters: s.mu.routingTables[meta.Id].Filters}, nil
 }
 
-func (s *Server) checkNumHopsToGetToFile(accessId string) (int, error) {
+func (s *Server) checkNumHopsToGetToFile(documentId string) (int, error) {
 	localMeta, err := s.NodeMeta()
 	if err != nil {
 		return 0, err
@@ -131,46 +118,44 @@ func (s *Server) checkNumHopsToGetToFile(accessId string) (int, error) {
 				return -1, err
 			}
 
-			isInThisHop := filter.TestString(accessId)
+			isInThisHop := filter.TestString(documentId)
 			if isInThisHop == true {
 				return i, nil
 			}
 		}
 	}
 
-	return -1, errors.New("missing Document")
+	return 0, errors.Errorf("missing Document: %+v", documentId)
 }
 
-func (s *Server) receiveTableOfPeer(stream serverpb.Node_SendCurrentRoutingTableClient) {
-	routing_table, err := s.getLocalRT()
+func (s *Server) receiveTableOfPeer(ctx context.Context, remoteID string, client serverpb.NodeClient) error {
+	remoteTable, err := client.GetRoutingTable(ctx, &serverpb.RoutingTable{})
 	if err != nil {
-		return
+		return err
 	}
-	local_id, err := s.getLocalId()
+
+	routingTable, err := s.getLocalRT()
 	if err != nil {
-		return
+		return err
 	}
-	for {
-		newRoutingTableOfPeer, err := stream.Recv()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			break
-		}
-
-		s.mu.Lock()
-		merged, err := s.mergeReceived(routing_table, newRoutingTableOfPeer, local_id)
-		if err != nil {
-			break
-		}
-		if len(merged.Filters) > 0 {
-			s.mu.routingTables[local_id] = *merged
-		}
-		s.mu.Unlock()
-
-		time.Sleep(heartBeatInterval)
+	localID, err := s.getLocalId()
+	if err != nil {
+		return err
 	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.mu.routingTables[remoteID] = *remoteTable
+	merged, err := s.mergeReceived(routingTable, remoteTable, localID)
+	if err != nil {
+		return err
+	}
+	if len(merged.Filters) > 0 {
+		s.mu.routingTables[localID] = *merged
+	}
+
+	return nil
 }
 
 func (s *Server) mergeReceived(rt0 *serverpb.RoutingTable, rt1 *serverpb.RoutingTable, local_id string) (*serverpb.RoutingTable, error) {
