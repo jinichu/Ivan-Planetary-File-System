@@ -64,16 +64,22 @@ func (s *Server) GetRoutingTable(ctx context.Context, previousRT *serverpb.Routi
 func (s *Server) ReceiveNewRoutingTable() {
 	for {
 		s.log.Printf("fetching routing tables...")
-		for metaId, conn := range s.mu.peerConns {
-			client := serverpb.NewNodeClient(conn)
+		clients := map[string]serverpb.NodeClient{}
 
+		s.mu.Lock()
+		for id, client := range s.mu.peers {
+			clients[id] = client
+		}
+		s.mu.Unlock()
+
+		for id, client := range clients {
 			ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
 
-			if err := s.receiveTableOfPeer(ctx, metaId, client); err != nil {
-				s.log.Printf("get routing table error: %s: %+v", color.RedString(metaId), err)
+			if err := s.receiveTableOfPeer(ctx, id, client); err != nil {
+				s.log.Printf("get routing table error: %s: %+v", color.RedString(id), err)
 
 				s.mu.Lock()
-				delete(s.mu.routingTables, metaId)
+				delete(s.mu.routingTables, id)
 				s.mu.Unlock()
 
 				continue
