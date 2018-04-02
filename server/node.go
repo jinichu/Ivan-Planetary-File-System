@@ -57,3 +57,11 @@ func (s *Server) GetRemoteFile(ctx context.Context, in *serverpb.GetRemoteFileRe
 		return resp, nil
 	}
 }
+
+func (s *Server) GetRemoteReference(ctx context.Context, request *serverpb.GetRemoteReferenceRequest) (*serverpb.GetRemoteReferenceResponse, error) {
+	return nil, ErrUnimplemented
+}
+
+func (s *Server) Subscribe(req *serverpb.SubscribeRequest, stream serverpb.Node_SubscribeServer) error {
+	return ErrUnimplemented
+}

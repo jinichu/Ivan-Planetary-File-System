@@ -30,12 +30,33 @@ message HeartBeatResponse {}
 
 message MetaRequest {}
 
+message GetRemoteReferenceRequest {
+  string reference_id = 1;
+}
+
+message GetRemoteReferenceResponse {
+  Reference reference = 1;
+}
+
+message SubscribeRequest {
+  string channel_id = 1;
+  int64 starting = 2;
+}
+
+message SubscribeResponse {
+  string message = 1;
+  // TODO: sign and verify this
+}
+
 service Node {
   rpc Hello(HelloRequest) returns (HelloResponse) {}
   rpc HeartBeat(HeartBeatRequest) returns (HeartBeatResponse) {}
   rpc Meta(MetaRequest) returns (NodeMeta) {}
   rpc GetRemoteFile(GetRemoteFileRequest) returns (GetRemoteFileResponse) {}
   rpc GetRoutingTable(RoutingTable) returns (RoutingTable) {}
+  rpc GetRemoteReference(GetRemoteReferenceRequest) returns (GetRemoteReferenceResponse) {}
+
+  rpc Subscribe(SubscribeRequest) returns (stream SubscribeResponse) {}
 }
 
 message Document {
