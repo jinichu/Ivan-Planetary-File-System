@@ -9,7 +9,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
-	"encoding/hex"
+	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
@@ -279,5 +279,5 @@ func Hash(a interface{}) (string, error) {
 	if err := json.NewEncoder(h).Encode(a); err != nil {
 		return "", nil
 	}
-	return hex.EncodeToString(h.Sum(nil)), nil
+	return base64.URLEncoding.EncodeToString(h.Sum(nil)), nil
 }

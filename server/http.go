@@ -7,6 +7,7 @@ import (
 	"html"
 	"net/http"
 	"net/url"
+	"path"
 	"path/filepath"
 	"proj2_f5w9a_h6v9a_q7w9a_r8u8_w1c0b/serverpb"
 	"sort"
@@ -19,6 +20,8 @@ import (
 func (s *Server) setupHTTP() {
 	s.mux.HandleFunc("/badger/", httpErr(s.httpBadger))
 	s.mux.HandleFunc("/document/", httpErr(s.httpDocument))
+	s.mux.HandleFunc("/subscribe/", httpErr(s.httpSubscribe))
+	s.mux.HandleFunc("/reference/", httpErr(s.httpReference))
 	s.mux.HandleFunc("/", httpErr(s.httpIndex))
 }
 
@@ -82,12 +85,15 @@ func (s *Server) httpDocument(w http.ResponseWriter, r *http.Request) error {
 	if len(parts) < 3 {
 		return errors.Errorf("must have 2 slashes")
 	}
-	s.log.Printf("GET %s", r.URL.Path)
 	doc, err := s.resolveDoc(r.Context(), parts[2], parts[3:])
 	if err != nil {
 		return err
 	}
 	if doc.ContentType == "directory" {
+		if !strings.HasSuffix(r.URL.Path, "/") {
+			http.Redirect(w, r, r.URL.Path+"/", http.StatusFound)
+			return nil
+		}
 		fmt.Fprintf(w, "<h1>%s</h1>", r.URL.Path)
 		var keys []string
 		for k := range doc.Children {
@@ -127,4 +133,48 @@ func (s *Server) resolveDoc(ctx context.Context, id string, path []string) (*ser
 		return nil, errors.Errorf("doc %q missing child %q", doc, key)
 	}
 	return s.resolveDoc(ctx, child, path[1:])
+}
+
+func (s *Server) httpSubscribe(w http.ResponseWriter, r *http.Request) error {
+	conn, err := s.TestConn()
+	if err != nil {
+		return err
+	}
+	client := serverpb.NewClientClient(conn)
+	stream, err := client.SubscribeClient(r.Context(), &serverpb.SubscribeRequest{
+		ChannelId: path.Base(r.URL.Path),
+	})
+	if err != nil {
+		return err
+	}
+	for {
+		msg, err := stream.Recv()
+		if err != nil {
+			return err
+		}
+		if _, err := w.Write([]byte(msg.Message)); err != nil {
+			return err
+		}
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+	}
+	return nil
+}
+
+func (s *Server) httpReference(w http.ResponseWriter, r *http.Request) error {
+	parts := strings.Split(r.URL.Path, "/")
+	if len(parts) < 3 {
+		return errors.Errorf("must have 2 slashes")
+	}
+	resp, err := s.GetReference(r.Context(), &serverpb.GetReferenceRequest{
+		ReferenceId: parts[2],
+	})
+	if err != nil {
+		return err
+	}
+	val := resp.GetReference().GetValue()
+	r.URL.Path = strings.Join(append([]string{"", strings.Replace(val, "@", "/", -1)}, parts[3:]...), "/")
+	s.mux.ServeHTTP(w, r)
+	return nil
 }
