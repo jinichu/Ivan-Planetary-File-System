@@ -181,7 +181,7 @@ func TestClusterFetchReference(t *testing.T) {
 		}
 	}
 
-	// Check to make sure all nodes can access other nodes files.
+	// Check to make sure all nodes can access other nodes references.
 	for i, node := range ts.Nodes {
 		for referenceID, doc := range files {
 			util.SucceedsSoon(t, func() error {

@@ -119,7 +119,3 @@ func (s *Server) GetRemoteReference(ctx context.Context, req *serverpb.GetRemote
 		Reference: body,
 	}, nil
 }
-
-func (s *Server) Subscribe(req *serverpb.SubscribeRequest, stream serverpb.Node_SubscribeServer) error {
-	return ErrUnimplemented
-}

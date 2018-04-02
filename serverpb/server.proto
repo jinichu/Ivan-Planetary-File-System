@@ -42,11 +42,14 @@ message GetRemoteReferenceResponse {
 message SubscribeRequest {
   string channel_id = 1;
   int64 starting = 2;
+  int32 num_hops = 3;
 }
 
-message SubscribeResponse {
+message Message {
   string message = 1;
-  // TODO: sign and verify this
+  string public_key = 2;
+  string signature = 3;
+  int64 timestamp = 4;
 }
 
 service Node {
@@ -57,7 +60,7 @@ service Node {
   rpc GetRoutingTable(RoutingTable) returns (RoutingTable) {}
   rpc GetRemoteReference(GetRemoteReferenceRequest) returns (GetRemoteReferenceResponse) {}
 
-  rpc Subscribe(SubscribeRequest) returns (stream SubscribeResponse) {}
+  rpc Subscribe(SubscribeRequest) returns (stream Message) {}
 }
 
 message Document {
