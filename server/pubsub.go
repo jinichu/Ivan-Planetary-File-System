@@ -1,8 +1,12 @@
 package server
 
 import (
+	"context"
+	"encoding/asn1"
+	"encoding/base64"
 	"fmt"
 	"proj2_f5w9a_h6v9a_q7w9a_r8u8_w1c0b/serverpb"
+	"time"
 
 	"github.com/dgraph-io/badger"
 	"github.com/pkg/errors"
@@ -93,4 +97,72 @@ func (s *Server) Subscribe(req *serverpb.SubscribeRequest, stream serverpb.Node_
 		}
 	}
 	return nil
+}
+
+func (s *Server) Publish(ctx context.Context, req *serverpb.PublishRequest) (*serverpb.PublishResponse, error) {
+	privKey, err := LoadPrivate(req.GetPrivKey())
+	if err != nil {
+		fmt.Println(err)
+		return nil, err
+	}
+	pubKey, err := MarshalPublic(&privKey.PublicKey)
+	if err != nil {
+		fmt.Println(err)
+		return nil, err
+	}
+	// Create reference
+	msg := &serverpb.Message{
+		Message:   req.GetMessage(),
+		PublicKey: pubKey,
+		Timestamp: time.Now().Unix(),
+	}
+	bytes, err := msg.Marshal()
+	if err != nil {
+		fmt.Println(err)
+		return nil, err
+	}
+	r, s1, err := Sign(bytes, *privKey)
+	if err != nil {
+		fmt.Println(err)
+		return nil, err
+	}
+	sig, err := asn1.Marshal(EcdsaSignature{R: r, S: s1})
+	if err != nil {
+		fmt.Println(err)
+		return nil, err
+	}
+	msg.Signature = base64.StdEncoding.EncodeToString(sig)
+	referenceId, err := Hash(msg.PublicKey)
+	if err != nil {
+		return nil, err
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	ch, ok := s.mu.channels[referenceId]
+	if !ok {
+		return &serverpb.PublishResponse{
+			Listeners: 0,
+		}, nil
+	}
+
+	listeners := int32(0)
+
+	for _, c := range ch.listeners {
+		// attempt to write messages to all listeners, but drop message if blocked
+		select {
+		case c <- msg:
+			listeners++
+		default:
+		}
+	}
+
+	return &serverpb.PublishResponse{
+		Listeners: listeners,
+	}, nil
+}
+
+func (s *Server) SubscribeClient(req *serverpb.SubscribeRequest, stream serverpb.Client_SubscribeClientServer) error {
+	return s.Subscribe(req, stream)
 }

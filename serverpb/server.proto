@@ -59,7 +59,6 @@ service Node {
   rpc GetRemoteFile(GetRemoteFileRequest) returns (GetRemoteFileResponse) {}
   rpc GetRoutingTable(RoutingTable) returns (RoutingTable) {}
   rpc GetRemoteReference(GetRemoteReferenceRequest) returns (GetRemoteReferenceResponse) {}
-
   rpc Subscribe(SubscribeRequest) returns (stream Message) {}
 }
 
@@ -135,10 +134,21 @@ service Client {
   rpc AddPeer(AddPeerRequest) returns (AddPeerResponse) {}
   rpc GetReference(GetReferenceRequest) returns (GetReferenceResponse) {}
   rpc AddReference(AddReferenceRequest) returns (AddReferenceResponse) {}
+  rpc Publish(PublishRequest) returns (PublishResponse) {}
+  rpc SubscribeClient(SubscribeRequest) returns (stream Message) {}
 }
   // ipfs get <hash>
   // ipfs add <file>
   // ipfs peers
+
+message PublishRequest {
+  bytes priv_key = 1;
+  string message = 2;
+}
+
+message PublishResponse {
+  int32 listeners = 1;
+}
 
 message RoutingTable {
   repeated BloomFilter filters = 1;
