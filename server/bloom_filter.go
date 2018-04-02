@@ -2,8 +2,8 @@ package server
 
 import (
 	"context"
-	"fmt"
 	"proj2_f5w9a_h6v9a_q7w9a_r8u8_w1c0b/serverpb"
+	"sort"
 	"time"
 
 	"github.com/fatih/color"
@@ -12,47 +12,98 @@ import (
 )
 
 const (
-	n        = 10
-	load     = 20
-	num_keys = 5
+	NumberOfKeys             = 100000
+	FalsePositiveProbability = 0.01
 )
 
-func (s *Server) createNewBloomFilter() *bloom.BloomFilter {
-	return bloom.New(load*n, 5)
+func createNewBloomFilter() *bloom.BloomFilter {
+	return bloom.NewWithEstimates(NumberOfKeys, FalsePositiveProbability)
 }
 
-func (s *Server) addToRoutingTable(id string, file_hash string) error {
-	if _, ok := s.mu.routingTables[id]; ok {
-		bfs := s.mu.routingTables[id].Filters
+type Route struct {
+	ID      string
+	Client  serverpb.NodeClient
+	NumHops int32
+}
 
-		filter := s.createNewBloomFilter()
-		err := filter.GobDecode(bfs[0].Data)
-		if err != nil {
-			return err
+func (s *Server) TestRTs() map[string]serverpb.RoutingTable {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.mu.routingTables
+}
+
+func (s *Server) peersWithFile(documentID string) []Route {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var routes []Route
+	for id, client := range s.mu.peers {
+		table, ok := s.mu.routingTables[id]
+		if !ok {
+			continue
 		}
-		filter.AddString(file_hash)
-		encoded_bf, err := filter.GobEncode()
-		if err != nil {
-			return err
+
+		for hops, bf := range table.Filters {
+			if len(bf.Data) == 0 {
+				continue
+			}
+
+			var filter bloom.BloomFilter
+			if err := filter.GobDecode(bf.Data); err != nil {
+				s.log.Printf("failed to decode filter for node %+v: %+v", id, err)
+				continue
+			}
+
+			if filter.TestString(documentID) {
+				routes = append(routes, Route{
+					ID:      id,
+					Client:  client,
+					NumHops: int32(hops + 1),
+				})
+			}
 		}
-		bfs[0].Data = encoded_bf
-	} else {
-		filter := s.createNewBloomFilter()
-		filter.AddString(file_hash)
-		encoded_bf, err := filter.GobEncode()
-		if err != nil {
-			return err
-		}
-		bloom_filter := &serverpb.BloomFilter{Data: encoded_bf}
-		filters := []*serverpb.BloomFilter{bloom_filter}
-		routing_table := serverpb.RoutingTable{Filters: filters}
-		s.mu.routingTables[id] = routing_table
 	}
+
+	sort.Slice(routes, func(i, j int) bool {
+		return routes[i].NumHops < routes[j].NumHops
+	})
+
+	return routes
+}
+
+func (s *Server) addToRoutingTable(id string, documentID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	table := s.mu.routingTables[id]
+
+	filter := createNewBloomFilter()
+	if len(table.Filters) > 0 {
+		if err := filter.GobDecode(table.Filters[0].Data); err != nil {
+			return err
+		}
+	}
+
+	filter.AddString(documentID)
+	data, err := filter.GobEncode()
+	if err != nil {
+		return err
+	}
+	entry := &serverpb.BloomFilter{
+		Data: data,
+	}
+	if len(table.Filters) > 0 {
+		table.Filters[0] = entry
+	} else {
+		table.Filters = append(table.Filters, entry)
+	}
+	s.mu.routingTables[id] = table
 
 	return nil
 }
 
-// send change
+// GetRoutingTable returns the local nodes routing table.
 func (s *Server) GetRoutingTable(ctx context.Context, previousRT *serverpb.RoutingTable) (*serverpb.RoutingTable, error) {
 	routingTable, err := s.getLocalRT()
 	if err != nil {
@@ -62,11 +113,18 @@ func (s *Server) GetRoutingTable(ctx context.Context, previousRT *serverpb.Routi
 }
 
 func (s *Server) ReceiveNewRoutingTable() {
+	ticker := time.NewTicker(heartBeatInterval)
 	for {
-		s.log.Printf("fetching routing tables...")
+		select {
+		case <-ticker.C:
+		case <-s.stopper.ShouldStop():
+			return
+		}
+
 		clients := map[string]serverpb.NodeClient{}
 
 		s.mu.Lock()
+		s.log.Printf("fetching routing tables... have %d", len(s.mu.routingTables))
 		for id, client := range s.mu.peers {
 			clients[id] = client
 		}
@@ -85,7 +143,6 @@ func (s *Server) ReceiveNewRoutingTable() {
 				continue
 			}
 		}
-		time.Sleep(heartBeatInterval)
 	}
 }
 
@@ -104,34 +161,35 @@ func (s *Server) getLocalRT() (*serverpb.RoutingTable, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &serverpb.RoutingTable{Filters: s.mu.routingTables[meta.Id].Filters}, nil
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	rt := s.mu.routingTables[meta.Id]
+	return &rt, nil
 }
 
-func (s *Server) checkNumHopsToGetToFile(documentId string) (int, error) {
+func (s *Server) checkNumHopsToGetToFile(documentID string) (int, error) {
 	localMeta, err := s.NodeMeta()
 	if err != nil {
 		return 0, err
 	}
-	my_rt := s.mu.routingTables[localMeta.Id]
-	my_bloom_filters := my_rt.Filters
+	rt := s.mu.routingTables[localMeta.Id]
+	for i, bf := range rt.Filters {
+		if len(bf.Data) == 0 {
+			continue
+		}
+		var filter bloom.BloomFilter
+		if err := filter.GobDecode(bf.Data); err != nil {
+			return 0, err
+		}
 
-	for i, bf := range my_bloom_filters {
-		if len(bf.Data) > 1 {
-			filter := s.createNewBloomFilter()
-			err := filter.GobDecode(bf.Data)
-			if err != nil {
-				fmt.Println("Couldn't decode.", err)
-				return -1, err
-			}
-
-			isInThisHop := filter.TestString(documentId)
-			if isInThisHop == true {
-				return i, nil
-			}
+		isInThisHop := filter.TestString(documentID)
+		if isInThisHop == true {
+			return i, nil
 		}
 	}
 
-	return 0, errors.Errorf("missing Document: %+v", documentId)
+	return 0, errors.Errorf("missing Document: %+v", documentID)
 }
 
 func (s *Server) receiveTableOfPeer(ctx context.Context, remoteID string, client serverpb.NodeClient) error {
@@ -140,7 +198,7 @@ func (s *Server) receiveTableOfPeer(ctx context.Context, remoteID string, client
 		return err
 	}
 
-	routingTable, err := s.getLocalRT()
+	localTable, err := s.getLocalRT()
 	if err != nil {
 		return err
 	}
@@ -153,19 +211,16 @@ func (s *Server) receiveTableOfPeer(ctx context.Context, remoteID string, client
 	defer s.mu.Unlock()
 
 	s.mu.routingTables[remoteID] = *remoteTable
-	merged, err := s.mergeReceived(routingTable, remoteTable, localID)
+	merged, err := mergeReceived(localTable, remoteTable)
 	if err != nil {
 		return err
 	}
-	if len(merged.Filters) > 0 {
-		s.mu.routingTables[localID] = *merged
-	}
+	s.mu.routingTables[localID] = *merged
 
 	return nil
 }
 
-func (s *Server) mergeReceived(rt0 *serverpb.RoutingTable, rt1 *serverpb.RoutingTable, local_id string) (*serverpb.RoutingTable, error) {
-	i := 1
+func mergeReceived(rt0 *serverpb.RoutingTable, rt1 *serverpb.RoutingTable) (*serverpb.RoutingTable, error) {
 	var size int
 	if len(rt0.Filters) > len(rt1.Filters) {
 		size = len(rt0.Filters) + 1
@@ -173,89 +228,88 @@ func (s *Server) mergeReceived(rt0 *serverpb.RoutingTable, rt1 *serverpb.Routing
 		size = len(rt1.Filters) + 1
 	}
 
-	with_dupes := make([]*serverpb.BloomFilter, size)
+	withDupes := make([]*serverpb.BloomFilter, size)
 
 	for k := 0; k < size; k++ {
-		with_dupes[k] = &serverpb.BloomFilter{}
+		withDupes[k] = &serverpb.BloomFilter{}
 	}
 
 	if len(rt0.Filters) > 0 {
-		with_dupes[0] = rt0.Filters[0]
+		withDupes[0] = rt0.Filters[0]
 	}
 
-	for i < len(rt0.Filters) && i < len(rt1.Filters) {
-		merged, err := s.mergeFilters(rt0.Filters[i], rt1.Filters[i-1])
+	i := 1
+	for ; i < len(rt0.Filters) && i <= len(rt1.Filters); i++ {
+		merged, err := mergeFilters(rt0.Filters[i], rt1.Filters[i-1])
 		if err != nil {
 			return nil, err
 		}
-		with_dupes[i] = merged
-		i += 1
+		withDupes[i] = merged
 	}
 
-	for i <= len(rt1.Filters) && i >= 1 {
-		with_dupes[i] = rt1.Filters[i-1]
-		i += 1
+	for ; i <= len(rt1.Filters) && i >= 1; i++ {
+		withDupes[i] = rt1.Filters[i-1]
 	}
 
-	for i < len(rt0.Filters) {
-		with_dupes[i] = rt0.Filters[i]
-		i += 1
+	for ; i < len(rt0.Filters); i++ {
+		withDupes[i] = rt0.Filters[i]
 	}
 
-	deduped := s.deleteDuplicates(with_dupes)
+	deduped := deleteDuplicates(withDupes)
 
 	return &serverpb.RoutingTable{Filters: deduped}, nil
 }
 
-func (s *Server) deleteDuplicates(filters []*serverpb.BloomFilter) (deduped []*serverpb.BloomFilter) {
+func deleteDuplicates(filters []*serverpb.BloomFilter) []*serverpb.BloomFilter {
 	seen := make(map[string]bool)
-	tail_count := 0
-	for _, filter := range filters {
+	deduped := make([]*serverpb.BloomFilter, len(filters))
+	firstDuplicate := -1
+	for i, filter := range filters {
 		key := string(filter.Data)
-		if !seen[key] {
-			if len(filter.Data) > 1 {
-				seen[key] = true
-				tail_count = 0
-			} else {
-				tail_count += 1
+		if seen[key] {
+			if firstDuplicate <= 0 {
+				firstDuplicate = i
 			}
-			deduped = append(deduped, filter)
+			continue
 		}
+		seen[key] = true
+		deduped[i] = filter
 	}
 
-	if len(deduped) > 0 {
-		deduped = deduped[0 : len(deduped)-tail_count]
+	if firstDuplicate <= 0 {
+		firstDuplicate = len(deduped)
 	}
-	return deduped
+
+	return deduped[:firstDuplicate]
 }
 
-func (s *Server) mergeFilters(bf0 *serverpb.BloomFilter, bf1 *serverpb.BloomFilter) (*serverpb.BloomFilter, error) {
-	if len(bf0.Data) <= 1 {
+func mergeFilters(bf0 *serverpb.BloomFilter, bf1 *serverpb.BloomFilter) (*serverpb.BloomFilter, error) {
+	if len(bf0.Data) == 0 {
 		return bf1, nil
 	}
 
-	if len(bf1.Data) <= 1 {
+	if len(bf1.Data) == 0 {
 		return bf0, nil
 	}
 
-	filter := s.createNewBloomFilter()
-	err := filter.GobDecode(bf0.Data)
+	var filter bloom.BloomFilter
+	if err := filter.GobDecode(bf0.Data); err != nil {
+		return nil, err
+	}
+
+	var receivedFilter bloom.BloomFilter
+	if err := receivedFilter.GobDecode(bf1.Data); err != nil {
+		return nil, err
+	}
+
+	if err := filter.Merge(&receivedFilter); err != nil {
+		return nil, err
+	}
+
+	mergedFilter, err := filter.GobEncode()
 	if err != nil {
 		return nil, err
 	}
 
-	received_filter := s.createNewBloomFilter()
-	err = received_filter.GobDecode(bf1.Data)
-	if err != nil {
-		return nil, err
-	}
-
-	filter.Merge(received_filter)
-
-	merged_filter, err := filter.GobEncode()
-	if err != nil {
-		return nil, err
-	}
-
-	return &serverpb.BloomFilter{Data: merged_filter}, nil
+	return &serverpb.BloomFilter{Data: mergedFilter}, nil
 }

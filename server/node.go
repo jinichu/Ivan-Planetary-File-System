@@ -2,64 +2,123 @@ package server
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"proj2_f5w9a_h6v9a_q7w9a_r8u8_w1c0b/serverpb"
 
 	"github.com/dgraph-io/badger"
+	"github.com/pkg/errors"
 )
 
-func (s *Server) GetRemoteFile(ctx context.Context, in *serverpb.GetRemoteFileRequest) (*serverpb.GetRemoteFileResponse, error) {
-	num_hops := int32(in.GetNumHops())
-	documentID := in.GetDocumentId()
+var (
+	ErrNumHops = errors.New("max number of hops reached")
+)
 
-	if num_hops > 0 {
-		for _, conn := range s.mu.peerConns {
-			client := serverpb.NewNodeClient(conn)
-			args := &serverpb.GetRemoteFileRequest{
+func (s *Server) GetRemoteFile(ctx context.Context, req *serverpb.GetRemoteFileRequest) (*serverpb.GetRemoteFileResponse, error) {
+	documentID := req.GetDocumentId()
+
+	var body []byte
+	if err := s.db.View(func(txn *badger.Txn) error {
+		key := fmt.Sprintf("/document/%s", documentID)
+		item, err := txn.Get([]byte(key))
+		if err != nil {
+			return err
+		}
+		body, err = item.Value()
+		if err != nil {
+			return err
+		}
+		return nil
+	}); err == badger.ErrKeyNotFound {
+		if req.GetNumHops() == 0 {
+			return nil, ErrNumHops
+		}
+
+		// Look document up via the network.
+		routes := s.peersWithFile(documentID)
+		if len(routes) == 0 {
+			return nil, errors.Errorf("no routes to document: %s", documentID)
+		}
+		for _, route := range routes {
+			numHops := req.GetNumHops()
+			if numHops == -1 {
+				numHops = route.NumHops
+			}
+			resp, err := route.Client.GetRemoteFile(ctx, &serverpb.GetRemoteFileRequest{
 				DocumentId: documentID,
-				NumHops:    num_hops - 1,
+				NumHops:    numHops,
+			})
+			if err != nil {
+				s.log.Printf("failed to find file: %+v", err)
+				continue
 			}
-			resp, err := client.GetRemoteFile(ctx, args)
 
-			if err != nil {
-				fmt.Println(err)
-			} else {
-				return &serverpb.GetRemoteFileResponse{FileHash: resp.FileHash}, nil
-			}
+			return resp, nil
 		}
-		fmt.Println("couldn't find the document at all.")
-
-		return nil, errors.New("missing Document")
-	} else {
-		var body []byte
-		if err := s.db.View(func(txn *badger.Txn) error {
-			key := fmt.Sprintf("/document/%s", documentID)
-			item, err := txn.Get([]byte(key))
-			if err != nil {
-				return err
-			}
-			body, err = item.Value()
-			if err != nil {
-				return err
-			}
-			return nil
-		}); err != nil {
-			if err != badger.ErrKeyNotFound {
-				return nil, err
-			} else if err == badger.ErrKeyNotFound {
-				return nil, errors.New("missing Document")
-			}
-		}
-		resp := &serverpb.GetRemoteFileResponse{
-			FileHash: body,
-		}
-		return resp, nil
+		return nil, errors.Errorf("failed to find document: %s", documentID)
+	} else if err != nil {
+		return nil, err
 	}
+
+	resp := &serverpb.GetRemoteFileResponse{
+		Body: body,
+	}
+	return resp, nil
 }
 
-func (s *Server) GetRemoteReference(ctx context.Context, request *serverpb.GetRemoteReferenceRequest) (*serverpb.GetRemoteReferenceResponse, error) {
-	return nil, ErrUnimplemented
+func (s *Server) GetRemoteReference(ctx context.Context, req *serverpb.GetRemoteReferenceRequest) (*serverpb.GetRemoteReferenceResponse, error) {
+
+	referenceID := req.GetReferenceId()
+
+	var body []byte
+
+	// Try to get reference locally first
+	if err := s.db.View(func(txn *badger.Txn) error {
+		key := fmt.Sprintf("/reference/%s", referenceID)
+		item, err := txn.Get([]byte(key))
+		if err != nil {
+			return err
+		}
+		body, err = item.Value()
+		if err != nil {
+			return err
+		}
+		return nil
+	}); err == badger.ErrKeyNotFound {
+		// TODO: Do a network lookup for this reference (Bea)
+		if req.GetNumHops() <= 0 {
+			return nil, ErrNumHops
+		}
+
+		// Look reference up via the network.
+		routes := s.peersWithFile(referenceID)
+		if len(routes) == 0 {
+			return nil, errors.Errorf("no routes to document: %s", referenceID)
+		}
+		for _, route := range routes {
+			numHops := req.GetNumHops()
+			if numHops == -1 {
+				numHops = route.NumHops
+			}
+			resp, err := route.Client.GetRemoteReference(ctx, &serverpb.GetRemoteReferenceRequest{
+				ReferenceId: referenceID,
+				NumHops:     numHops,
+			})
+			if err != nil {
+				s.log.Printf("failed to find file: %+v", err)
+				continue
+			}
+
+			return resp, nil
+		}
+		return nil, errors.Errorf("failed to find reference: %s", referenceID)
+	} else if err != nil {
+		// Error wasn't an error relating to the reference not being found locally. Return.
+		return nil, err
+	}
+
+	return &serverpb.GetRemoteReferenceResponse{
+		Reference: body,
+	}, nil
 }
 
 func (s *Server) Subscribe(req *serverpb.SubscribeRequest, stream serverpb.Node_SubscribeServer) error {

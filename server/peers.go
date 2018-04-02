@@ -169,7 +169,14 @@ func (s *Server) AddNode(meta serverpb.NodeMeta) error {
 	}
 
 	go func() {
+		ticker := time.NewTicker(heartBeatInterval)
 		for {
+			select {
+			case <-ticker.C:
+			case <-s.stopper.ShouldStop():
+				return
+			}
+
 			ctx, _ := context.WithTimeout(ctx, dialTimeout)
 			if _, err := client.HeartBeat(ctx, &serverpb.HeartBeatRequest{}); err != nil {
 				s.log.Printf("heartbeat error: %s: %+v", color.RedString(meta.Id), err)
@@ -182,7 +189,6 @@ func (s *Server) AddNode(meta serverpb.NodeMeta) error {
 				}
 				return
 			}
-			time.Sleep(heartBeatInterval)
 		}
 	}()
 

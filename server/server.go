@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"proj2_f5w9a_h6v9a_q7w9a_r8u8_w1c0b/serverpb"
+	"proj2_f5w9a_h6v9a_q7w9a_r8u8_w1c0b/stopper"
 	"sync"
 
 	"github.com/dgraph-io/badger"
@@ -29,6 +30,8 @@ type Server struct {
 	cert       *tls.Certificate
 	certPublic string
 
+	stopper *stopper.Stopper
+
 	mu struct {
 		sync.Mutex
 
@@ -44,8 +47,9 @@ type Server struct {
 // New returns a new server.
 func New(c serverpb.NodeConfig) (*Server, error) {
 	s := &Server{
-		log:    log.New(os.Stderr, "", log.Flags()|log.Lshortfile),
-		config: c,
+		log:     log.New(os.Stderr, "", log.Flags()|log.Lshortfile),
+		config:  c,
+		stopper: stopper.New(),
 	}
 	s.mu.peerMeta = map[string]serverpb.NodeMeta{}
 	s.mu.peers = map[string]serverpb.NodeClient{}
@@ -83,6 +87,7 @@ func (s *Server) Close() error {
 
 	err := errors.New("shutting down...")
 	s.log.Printf("%v", err)
+	s.stopper.Stop()
 
 	if s.mu.grpcServer != nil {
 		s.mu.grpcServer.Stop()

@@ -30,47 +30,17 @@ func (s *Server) Get(ctx context.Context, in *serverpb.GetRequest) (*serverpb.Ge
 	if err != nil {
 		return nil, err
 	}
-	// Check if the file exists locally first
-	if err := s.db.View(func(txn *badger.Txn) error {
-		key := fmt.Sprintf("/document/%s", documentId)
-		item, err := txn.Get([]byte(key))
-		if err != nil {
-			return err
-		}
-		body, err := item.Value()
-		if err != nil {
-			return err
-		}
-		if f, err = s.DecryptDocument(body, accessKey); err != nil {
-			return err
-		}
-		return nil
-	}); err != nil {
-		if err != badger.ErrKeyNotFound {
-			// Error wasn't an error relating to the document not being found locally. Return.
-			return nil, err
-		} else if err == badger.ErrKeyNotFound {
-			// TODO: Network check, does this document exist on the network? If so, return it (Bea)
-			num_hops, err := s.checkNumHopsToGetToFile(documentId)
 
-			if err != nil {
-				return nil, err
-			}
-
-			args := &serverpb.GetRemoteFileRequest{
-				DocumentId: documentId,
-				NumHops:    int32(num_hops),
-			}
-
-			respRemote, err := s.GetRemoteFile(ctx, args)
-			if err != nil {
-				return nil, err
-			}
-			if f, err = s.DecryptDocument(respRemote.FileHash, accessKey); err != nil {
-				fmt.Println("cannot decrypt document", err)
-				return nil, err
-			}
-		}
+	respRemote, err := s.GetRemoteFile(ctx, &serverpb.GetRemoteFileRequest{
+		DocumentId: documentId,
+		NumHops:    -1, // -1 tells GetRemoteFile to infer it.
+	})
+	if err != nil {
+		return nil, err
+	}
+	if f, err = s.DecryptDocument(respRemote.Body, accessKey); err != nil {
+		s.log.Println("cannot decrypt document", err)
+		return nil, err
 	}
 	resp := &serverpb.GetResponse{
 		Document: &f,
@@ -107,7 +77,9 @@ func (s *Server) Add(ctx context.Context, in *serverpb.AddRequest) (*serverpb.Ad
 	if err != nil {
 		return nil, err
 	}
-	s.addToRoutingTable(localMeta.Id, hash)
+	if err := s.addToRoutingTable(localMeta.Id, hash); err != nil {
+		return nil, err
+	}
 
 	return resp, nil
 }
@@ -143,36 +115,25 @@ func (s *Server) AddPeer(ctx context.Context, in *serverpb.AddPeerRequest) (*ser
 }
 
 func (s *Server) GetReference(ctx context.Context, in *serverpb.GetReferenceRequest) (*serverpb.GetReferenceResponse, error) {
+	if in.GetReferenceId() == "" {
+		return nil, errors.Errorf("missing reference_id")
+	}
+
+	resp, err := s.GetRemoteReference(ctx, &serverpb.GetRemoteReferenceRequest{
+		ReferenceId: in.ReferenceId,
+	})
+	if err != nil {
+		return nil, err
+	}
+
 	var reference serverpb.Reference
-	// Try to get reference locally first
-	if err := s.db.View(func(txn *badger.Txn) error {
-		key := fmt.Sprintf("/reference/%s", in.GetReferenceId())
-		item, err := txn.Get([]byte(key))
-		if err != nil {
-			return err
-		}
-		body, err := item.Value()
-		if err != nil {
-			return err
-		}
-		if err = reference.Unmarshal(body); err != nil {
-			return err
-		}
-		return nil
-	}); err != nil {
-		if err != badger.ErrKeyNotFound {
-			// Error wasn't an error relating to the reference not being found locally. Return.
-			return nil, err
-		} else if err == badger.ErrKeyNotFound {
-			// TODO: Do a network lookup for this reference (Bea)
-		}
+	if err := reference.Unmarshal(resp.Reference); err != nil {
+		return nil, err
 	}
 
-	resp := &serverpb.GetReferenceResponse{
+	return &serverpb.GetReferenceResponse{
 		Reference: &reference,
-	}
-
-	return resp, nil
+	}, nil
 }
 
 func (s *Server) AddReference(ctx context.Context, in *serverpb.AddReferenceRequest) (*serverpb.AddReferenceResponse, error) {

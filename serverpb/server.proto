@@ -32,10 +32,11 @@ message MetaRequest {}
 
 message GetRemoteReferenceRequest {
   string reference_id = 1;
+  int32 num_hops = 2;
 }
 
 message GetRemoteReferenceResponse {
-  Reference reference = 1;
+  bytes reference = 1;
 }
 
 message SubscribeRequest {
@@ -150,5 +151,5 @@ message GetRemoteFileRequest {
 }
 
 message GetRemoteFileResponse {
-  bytes file_hash = 1;
+  bytes body = 1;
 }
