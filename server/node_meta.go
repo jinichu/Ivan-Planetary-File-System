@@ -47,7 +47,7 @@ func validateNodeMeta(meta serverpb.NodeMeta) error {
 		return err
 	}
 
-	rawSig, err := base64.StdEncoding.DecodeString(meta.Signature)
+	rawSig, err := base64.URLEncoding.DecodeString(meta.Signature)
 	if err != nil {
 		return err
 	}
@@ -104,12 +104,12 @@ func nodeMetaSign(meta serverpb.NodeMeta, key *ecdsa.PrivateKey) (string, error)
 	if err != nil {
 		return "", err
 	}
-	return base64.StdEncoding.EncodeToString(sig), nil
+	return base64.URLEncoding.EncodeToString(sig), nil
 }
 
 func nodeMetaId(meta serverpb.NodeMeta) string {
 	id := sha1.Sum([]byte(meta.PublicKey))
-	return base64.StdEncoding.EncodeToString(id[:])
+	return base64.URLEncoding.EncodeToString(id[:])
 }
 
 func (s *Server) NodeMeta() (serverpb.NodeMeta, error) {

@@ -26,7 +26,7 @@ func (s *Server) Get(ctx context.Context, in *serverpb.GetRequest) (*serverpb.Ge
 	if len(parts) < 2 {
 		return nil, errors.Errorf("AccessId should have a :")
 	}
-	accessKey, err := base64.StdEncoding.DecodeString(parts[1])
+	accessKey, err := base64.URLEncoding.DecodeString(parts[1])
 	if err != nil {
 		return nil, err
 	}
@@ -59,7 +59,7 @@ func (s *Server) Add(ctx context.Context, in *serverpb.AddRequest) (*serverpb.Ad
 	}
 
 	data := sha1.Sum(encryptedDocument)
-	hash := base64.StdEncoding.EncodeToString(data[:])
+	hash := base64.URLEncoding.EncodeToString(data[:])
 
 	if err := s.db.Update(func(txn *badger.Txn) error {
 		return txn.Set([]byte(fmt.Sprintf("/document/%s", hash)), encryptedDocument)
@@ -67,7 +67,7 @@ func (s *Server) Add(ctx context.Context, in *serverpb.AddRequest) (*serverpb.Ad
 		return nil, err
 	}
 
-	accessKey := base64.StdEncoding.EncodeToString(key)
+	accessKey := base64.URLEncoding.EncodeToString(key)
 	accessId := hash + ":" + accessKey
 	resp := &serverpb.AddResponse{
 		AccessId: accessId,
@@ -165,7 +165,7 @@ func (s *Server) AddReference(ctx context.Context, in *serverpb.AddReferenceRequ
 		fmt.Println(err)
 		return nil, err
 	}
-	reference.Signature = base64.StdEncoding.EncodeToString(sig)
+	reference.Signature = base64.URLEncoding.EncodeToString(sig)
 
 	// Add this reference locally
 	referenceId, err := Hash(reference.PublicKey)

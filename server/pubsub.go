@@ -131,7 +131,7 @@ func (s *Server) Publish(ctx context.Context, req *serverpb.PublishRequest) (*se
 		fmt.Println(err)
 		return nil, err
 	}
-	msg.Signature = base64.StdEncoding.EncodeToString(sig)
+	msg.Signature = base64.URLEncoding.EncodeToString(sig)
 	referenceId, err := Hash(msg.PublicKey)
 	if err != nil {
 		return nil, err

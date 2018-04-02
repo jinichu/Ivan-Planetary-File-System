@@ -35,12 +35,14 @@ type Server struct {
 	certPublic string
 
 	stopper *stopper.Stopper
+	mux     *http.ServeMux
 
 	mu struct {
 		sync.Mutex
 
 		l              net.Listener
 		grpcServer     *grpc.Server
+		httpServer     *http.Server
 		peerMeta       map[string]serverpb.NodeMeta
 		peers          map[string]serverpb.NodeClient
 		peerConns      map[string]*grpc.ClientConn
@@ -56,6 +58,7 @@ func New(c serverpb.NodeConfig) (*Server, error) {
 		log:     log.New(os.Stderr, "", log.Flags()|log.Lshortfile),
 		config:  c,
 		stopper: stopper.New(),
+		mux:     http.NewServeMux(),
 	}
 	s.mu.peerMeta = map[string]serverpb.NodeMeta{}
 	s.mu.peers = map[string]serverpb.NodeClient{}
@@ -85,6 +88,8 @@ func New(c serverpb.NodeConfig) (*Server, error) {
 		return nil, err
 	}
 
+	s.setupHTTP()
+
 	return s, nil
 }
 
@@ -98,6 +103,12 @@ func (s *Server) Close() error {
 
 	if s.mu.grpcServer != nil {
 		s.mu.grpcServer.Stop()
+	}
+
+	if s.mu.httpServer != nil {
+		if err := s.mu.httpServer.Close(); err != nil {
+			return err
+		}
 	}
 
 	if err := s.db.Close(); err != nil {
@@ -127,9 +138,26 @@ func (s *Server) Listen(addr string) error {
 	serverpb.RegisterClientServer(grpcServer, s)
 	go s.ReceiveNewRoutingTable()
 
+	httpServer := http.Server{
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.ProtoMajor == 2 && strings.HasPrefix(
+				r.Header.Get("Content-Type"), "application/grpc") {
+				grpcServer.ServeHTTP(w, r)
+			} else {
+				s.mux.ServeHTTP(w, r)
+			}
+		}),
+		TLSConfig: &tls.Config{
+			Certificates: []tls.Certificate{
+				*s.cert,
+			},
+		},
+	}
+
 	s.mu.Lock()
 	s.mu.l = l
 	s.mu.grpcServer = grpcServer
+	s.mu.httpServer = &httpServer
 	s.mu.Unlock()
 
 	meta, err := s.NodeMeta()
@@ -142,23 +170,10 @@ func (s *Server) Listen(addr string) error {
 	s.log.Printf("Listening to %s", l.Addr().String())
 	var g errgroup.Group
 	g.Go(func() error {
-		handler := http.NewServeMux()
-		httpServer := http.Server{
-			Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if r.ProtoMajor == 2 && strings.HasPrefix(
-					r.Header.Get("Content-Type"), "application/grpc") {
-					grpcServer.ServeHTTP(w, r)
-				} else {
-					handler.ServeHTTP(w, r)
-				}
-			}),
-			TLSConfig: &tls.Config{
-				Certificates: []tls.Certificate{
-					*s.cert,
-				},
-			},
+		if err := httpServer.ServeTLS(l, "", ""); err != http.ErrServerClosed {
+			return err
 		}
-		return httpServer.ServeTLS(l, "", "")
+		return nil
 	})
 	return g.Wait()
 }
