@@ -142,7 +142,7 @@ func (s *Server) AddNode(meta serverpb.NodeMeta) error {
 		return nil
 	}
 
-	ctx := context.TODO()
+	ctx, cancel := context.WithCancel(context.Background())
 	conn, err := s.connectNode(ctx, meta)
 	if err != nil {
 		return err
@@ -158,12 +158,20 @@ func (s *Server) AddNode(meta serverpb.NodeMeta) error {
 		return errors.Errorf("expected node with ID %+v; got %+v", meta, resp.Meta)
 	}
 
+	peer := &peer{
+		ctx:    ctx,
+		cancel: cancel,
+		client: client,
+		conn:   conn,
+		s:      s,
+		meta:   meta,
+	}
+
 	s.mu.Lock()
 	// make sure there isn't a duplicate connection
 	_, ok := s.mu.peers[meta.Id]
 	if !ok {
-		s.mu.peers[meta.Id] = client
-		s.mu.peerConns[meta.Id] = conn
+		s.mu.peers[meta.Id] = peer
 	}
 	s.mu.Unlock()
 
@@ -176,29 +184,7 @@ func (s *Server) AddNode(meta serverpb.NodeMeta) error {
 		}
 	}
 
-	go func() {
-		ticker := time.NewTicker(heartBeatInterval)
-		for {
-			select {
-			case <-ticker.C:
-			case <-s.stopper.ShouldStop():
-				return
-			}
-
-			ctx, _ := context.WithTimeout(ctx, dialTimeout)
-			if _, err := client.HeartBeat(ctx, &serverpb.HeartBeatRequest{}); err != nil {
-				s.log.Printf("heartbeat error: %s: %+v", color.RedString(meta.Id), err)
-				s.mu.Lock()
-				delete(s.mu.peers, meta.Id)
-				delete(s.mu.peerConns, meta.Id)
-				s.mu.Unlock()
-				if err := conn.Close(); err != nil {
-					s.log.Printf("failed to close connection: %s: %+v", color.RedString(meta.Id), err)
-				}
-				return
-			}
-		}
-	}()
+	go peer.heartbeat()
 
 	if err := s.AddNodes(resp.ConnectedPeers, resp.KnownPeers); err != nil {
 		return err
@@ -281,4 +267,47 @@ func (s *Server) BootstrapAddNode(addr string) error {
 		return err
 	}
 	return s.AddNode(*meta)
+}
+
+type peer struct {
+	meta         serverpb.NodeMeta
+	ctx          context.Context
+	cancel       context.CancelFunc
+	client       serverpb.NodeClient
+	conn         *grpc.ClientConn
+	routingTable *serverpb.RoutingTable
+
+	s *Server
+}
+
+func (p *peer) Close() {
+	p.cancel()
+
+	p.s.mu.Lock()
+	delete(p.s.mu.peers, p.meta.Id)
+	p.s.mu.Unlock()
+
+	if err := p.conn.Close(); err != nil {
+		p.s.log.Printf("failed to close connection: %s: %+v", color.RedString(p.meta.Id), err)
+	}
+}
+
+func (p *peer) heartbeat() {
+	ticker := time.NewTicker(heartBeatInterval)
+	for {
+		select {
+		case <-ticker.C:
+		case <-p.s.stopper.ShouldStop():
+			return
+		case <-p.ctx.Done():
+			return
+		}
+
+		ctx, _ := context.WithTimeout(p.ctx, dialTimeout)
+		if _, err := p.client.HeartBeat(ctx, &serverpb.HeartBeatRequest{}); err != nil {
+			p.s.log.Printf("heartbeat error: %s: %+v", color.RedString(p.meta.Id), err)
+			p.Close()
+			return
+		}
+	}
 }

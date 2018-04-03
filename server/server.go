@@ -47,11 +47,11 @@ type Server struct {
 		grpcServer     *grpc.Server
 		httpServer     *http.Server
 		peerMeta       map[string]serverpb.NodeMeta
-		peers          map[string]serverpb.NodeClient
-		peerConns      map[string]*grpc.ClientConn
-		routingTables  map[string]serverpb.RoutingTable
+		peers          map[string]*peer
 		channels       map[string]*channel
 		nextListenerID int
+
+		routingTable serverpb.RoutingTable
 	}
 }
 
@@ -64,9 +64,7 @@ func New(c serverpb.NodeConfig) (*Server, error) {
 		mux:     http.NewServeMux(),
 	}
 	s.mu.peerMeta = map[string]serverpb.NodeMeta{}
-	s.mu.peers = map[string]serverpb.NodeClient{}
-	s.mu.peerConns = map[string]*grpc.ClientConn{}
-	s.mu.routingTables = map[string]serverpb.RoutingTable{}
+	s.mu.peers = map[string]*peer{}
 	s.mu.channels = map[string]*channel{}
 
 	if len(c.Path) == 0 {
