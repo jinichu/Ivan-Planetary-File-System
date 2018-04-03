@@ -1,4 +1,5 @@
 proj2
 *.pb.go
+*.pb.gw.go
 tmp/
 ipfs

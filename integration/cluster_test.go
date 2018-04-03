@@ -241,7 +241,7 @@ func TestClusterPubSub(t *testing.T) {
 			return err
 		})
 
-		conn, err := node.TestConn()
+		conn, err := node.LocalConn()
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -239,26 +239,13 @@ func validateAddr(s string) error {
 	return nil
 }
 
-func (s *Server) TestConn() (*grpc.ClientConn, error) {
+func (s *Server) LocalConn() (*grpc.ClientConn, error) {
 	meta, err := s.NodeMeta()
 	if err != nil {
 		return nil, err
 	}
-	addr := meta.Addrs[0]
-	creds := credentials.NewTLS(&tls.Config{
-		Rand:               rand.Reader,
-		InsecureSkipVerify: true,
-	})
 	ctx := context.Background()
-	ctxDial, _ := context.WithTimeout(ctx, dialTimeout)
-	return grpc.DialContext(ctxDial, addr,
-		grpc.WithTransportCredentials(creds),
-		grpc.WithBlock(),
-		grpc.WithDefaultCallOptions(
-			grpc.MaxCallRecvMsgSize(int(config.GRPCMsgSize)),
-			grpc.MaxCallSendMsgSize(int(config.GRPCMsgSize)),
-		),
-	)
+	return s.connectNode(ctx, meta)
 }
 
 // BootstrapAddNode adds a node by using an address to do an insecure connection

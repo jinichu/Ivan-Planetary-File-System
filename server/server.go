@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/tls"
 	"log"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/dgraph-io/badger"
 	"github.com/fatih/color"
+	"github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"github.com/pkg/errors"
 
 	"golang.org/x/sync/errgroup"
@@ -182,5 +184,18 @@ func (s *Server) Listen(addr string) error {
 		}
 		return nil
 	})
+
+	mux := runtime.NewServeMux()
+	s.mux.Handle("/api/", http.StripPrefix("/api", mux))
+
+	ctx := context.Background()
+	conn, err := s.LocalConn()
+	if err != nil {
+		return err
+	}
+	if err := serverpb.RegisterClientHandler(ctx, mux, conn); err != nil {
+		return err
+	}
+
 	return g.Wait()
 }
