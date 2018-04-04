@@ -68,7 +68,7 @@ func (s *Server) GetRemoteFile(ctx context.Context, req *serverpb.GetRemoteFileR
 				continue
 			}
 
-			//TODO: call caching code here.
+			s.LRUCache(resp, documentID)
 
 			return resp, nil
 		}

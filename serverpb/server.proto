@@ -71,7 +71,7 @@ message Document {
 }
 
 message CacheMeta {
-  int32 sizeofdoc = 1;
+  int64 sizeofdoc = 1;
   int64 lastAccessed = 2;
 }
 
