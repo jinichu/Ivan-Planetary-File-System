@@ -65,21 +65,6 @@ func NewTestCluster(t *testing.T, n int, opts ...func(*cluster)) *cluster {
 	return &c
 }
 
-type Topology func(c *cluster)
-
-func TopologyStar(c *cluster) {
-	meta, err := c.Nodes[0].NodeMeta()
-	if err != nil {
-		c.t.Fatal(err)
-	}
-	for _, node := range c.Nodes[1:] {
-		if err := node.AddNode(meta); err != nil {
-			c.t.Fatalf("%+v", err)
-		}
-	}
-
-}
-
 func (c *cluster) AddNode(config serverpb.NodeConfig) *server.Server {
 	dir, err := ioutil.TempDir("", "ipfs-cluster-test")
 	if err != nil {
