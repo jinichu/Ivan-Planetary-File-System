@@ -13,7 +13,7 @@ var (
 	path      = flag.String("path", "tmp/node1", "the path to store data in")
 	bootstrap = flag.String("bootstrap", "", "addresses to bootstrap with, comma separated")
 	bind      = flag.String("bind", ":0", "the address to bind to")
-	maxPeers  = flag.Int("maxPeers", 10, "maximum number of peers")
+	maxPeers  = flag.Int("maxPeers", 100, "maximum number of peers")
 )
 
 func main() {
