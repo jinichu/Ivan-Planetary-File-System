@@ -4,7 +4,9 @@ import (
 	"context"
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/ecdsa"
 	"crypto/rand"
+	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/asn1"
 	"encoding/base64"
@@ -126,6 +128,38 @@ func (s *Server) GetReference(ctx context.Context, in *serverpb.GetReferenceRequ
 		return nil, err
 	}
 
+	signature, err := base64.URLEncoding.DecodeString(reference.Signature)
+	if err != nil {
+		return nil, err
+	}
+	var sig EcdsaSignature
+	if _, err := asn1.Unmarshal(signature, &sig); err != nil {
+		return nil, err
+	}
+
+	hash, err := Hash(reference.PublicKey)
+	if err != nil {
+		return nil, err
+	}
+	if hash != in.GetReferenceId() {
+		return nil, errors.Errorf("public key doesn't match reference ID")
+	}
+
+	publicKey, err := UnmarshalPublic(reference.PublicKey)
+	if err != nil {
+		return nil, err
+	}
+	ref2 := reference
+	ref2.Signature = ""
+	bytes, err := ref2.Marshal()
+	if err != nil {
+		return nil, err
+	}
+	refHash := sha1.Sum(bytes)
+	if !ecdsa.Verify(publicKey, refHash[:], sig.R, sig.S) {
+		return nil, errors.Errorf("invalid signature received")
+	}
+
 	return &serverpb.GetReferenceResponse{
 		Reference: &reference,
 	}, nil
@@ -150,7 +184,8 @@ func (s *Server) AddReference(ctx context.Context, in *serverpb.AddReferenceRequ
 	if err != nil {
 		return nil, err
 	}
-	r, s1, err := Sign(bytes, *privKey)
+	refHash := sha1.Sum(bytes)
+	r, s1, err := Sign(refHash[:], *privKey)
 	if err != nil {
 		return nil, err
 	}
@@ -186,7 +221,6 @@ func (s *Server) AddReference(ctx context.Context, in *serverpb.AddReferenceRequ
 	return resp, nil
 }
 
-// TODO: MAKE SOME End to End behaviour testing
 func (s *Server) EncryptDocument(doc serverpb.Document) (encryptedData []byte, key []byte, err error) {
 	// Create a new SHA256 handler
 	shaHandler := sha256.New()
