@@ -38,7 +38,7 @@ message GetRemoteReferenceRequest {
 }
 
 message GetRemoteReferenceResponse {
-  bytes reference = 1;
+  Reference reference = 1;
 }
 
 message SubscribeRequest {

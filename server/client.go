@@ -2,16 +2,11 @@ package server
 
 import (
 	"context"
-	"crypto/aes"
-	"crypto/cipher"
-	"crypto/ecdsa"
-	"crypto/rand"
 	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/asn1"
 	"encoding/base64"
 	"fmt"
-	"io"
 	"proj2_f5w9a_h6v9a_q7w9a_r8u8_w1c0b/serverpb"
 	"strings"
 	"time"
@@ -20,18 +15,24 @@ import (
 	"github.com/pkg/errors"
 )
 
-func (s *Server) Get(ctx context.Context, in *serverpb.GetRequest) (*serverpb.GetResponse, error) {
-	var f serverpb.Document
-	documentId := strings.Split(in.GetAccessId(), ":")[0]
-	parts := strings.Split(in.GetAccessId(), ":")
-	if len(parts) < 2 {
-		return nil, errors.Errorf("AccessId should have a :")
+func splitAccessID(id string) (string, []byte, error) {
+	parts := strings.Split(id, ":")
+	if len(parts) != 2 {
+		return "", nil, errors.Errorf("AccessId should have a :")
 	}
+	documentID := parts[0]
 	accessKey, err := base64.URLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return "", nil, err
+	}
+	return documentID, accessKey, nil
+}
+
+func (s *Server) Get(ctx context.Context, in *serverpb.GetRequest) (*serverpb.GetResponse, error) {
+	documentId, accessKey, err := splitAccessID(in.GetAccessId())
 	if err != nil {
 		return nil, err
 	}
-
 	respRemote, err := s.GetRemoteFile(ctx, &serverpb.GetRemoteFileRequest{
 		DocumentId: documentId,
 		NumHops:    -1, // -1 tells GetRemoteFile to infer it.
@@ -39,7 +40,8 @@ func (s *Server) Get(ctx context.Context, in *serverpb.GetRequest) (*serverpb.Ge
 	if err != nil {
 		return nil, err
 	}
-	if f, err = s.DecryptDocument(respRemote.Body, accessKey); err != nil {
+	f, err := s.DecryptDocument(respRemote.Body, accessKey)
+	if err != nil {
 		s.log.Println("cannot decrypt document", err)
 		return nil, err
 	}
@@ -111,57 +113,28 @@ func (s *Server) AddPeer(ctx context.Context, in *serverpb.AddPeerRequest) (*ser
 }
 
 func (s *Server) GetReference(ctx context.Context, in *serverpb.GetReferenceRequest) (*serverpb.GetReferenceResponse, error) {
-	if in.GetReferenceId() == "" {
-		return nil, errors.Errorf("missing reference_id")
+	referenceID, accessKey, err := splitAccessID(in.GetReferenceId())
+	if err != nil {
+		return nil, err
 	}
 
 	resp, err := s.GetRemoteReference(ctx, &serverpb.GetRemoteReferenceRequest{
-		ReferenceId: in.ReferenceId,
+		ReferenceId: referenceID,
 		NumHops:     -1,
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	var reference serverpb.Reference
-	if err := reference.Unmarshal(resp.Reference); err != nil {
-		return nil, err
-	}
-
-	signature, err := base64.URLEncoding.DecodeString(reference.Signature)
+	reference := resp.GetReference()
+	value, err := DecryptBytes(accessKey, []byte(reference.GetValue()))
 	if err != nil {
 		return nil, err
 	}
-	var sig EcdsaSignature
-	if _, err := asn1.Unmarshal(signature, &sig); err != nil {
-		return nil, err
-	}
-
-	hash, err := Hash(reference.PublicKey)
-	if err != nil {
-		return nil, err
-	}
-	if hash != in.GetReferenceId() {
-		return nil, errors.Errorf("public key doesn't match reference ID")
-	}
-
-	publicKey, err := UnmarshalPublic(reference.PublicKey)
-	if err != nil {
-		return nil, err
-	}
-	ref2 := reference
-	ref2.Signature = ""
-	bytes, err := ref2.Marshal()
-	if err != nil {
-		return nil, err
-	}
-	refHash := sha1.Sum(bytes)
-	if !ecdsa.Verify(publicKey, refHash[:], sig.R, sig.S) {
-		return nil, errors.Errorf("invalid signature received")
-	}
+	reference.Value = string(value)
 
 	return &serverpb.GetReferenceResponse{
-		Reference: &reference,
+		Reference: reference,
 	}, nil
 }
 
@@ -174,9 +147,19 @@ func (s *Server) AddReference(ctx context.Context, in *serverpb.AddReferenceRequ
 	if err != nil {
 		return nil, err
 	}
+
+	key, err := GenerateAESKey()
+	if err != nil {
+		return nil, err
+	}
+	encryptedValue, err := EncryptBytes(key, []byte(in.GetRecord()))
+	if err != nil {
+		return nil, err
+	}
+
 	// Create reference
 	reference := &serverpb.Reference{
-		Value:     in.GetRecord(),
+		Value:     string(encryptedValue),
 		PublicKey: pubKey,
 		Timestamp: time.Now().Unix(),
 	}
@@ -216,7 +199,7 @@ func (s *Server) AddReference(ctx context.Context, in *serverpb.AddReferenceRequ
 	}
 
 	resp := &serverpb.AddReferenceResponse{
-		ReferenceId: referenceId,
+		ReferenceId: referenceId + ":" + base64.URLEncoding.EncodeToString(key),
 	}
 	return resp, nil
 }
@@ -239,43 +222,21 @@ func (s *Server) EncryptDocument(doc serverpb.Document) (encryptedData []byte, k
 	// Grab the SHA1 key
 	docKey := shaHandler.Sum(nil)
 
-	// Create a new AESBlockCipher
-	aesBlock, err := aes.NewCipher(docKey)
+	ciphertext, err := EncryptBytes(docKey, marshalledData)
 	if err != nil {
 		return nil, nil, err
 	}
-
-	ciphertext := make([]byte, aes.BlockSize+len(marshalledData))
-	iv := ciphertext[:aes.BlockSize]
-	if _, err := io.ReadFull(rand.Reader, iv); err != nil {
-		return nil, nil, err
-	}
-
-	stream := cipher.NewCFBEncrypter(aesBlock, iv)
-	stream.XORKeyStream(ciphertext[aes.BlockSize:], marshalledData)
 
 	return ciphertext, docKey, nil
 }
 
 func (s *Server) DecryptDocument(documentData []byte, key []byte) (decryptedDocument serverpb.Document, err error) {
-	aesBlock, err := aes.NewCipher(key)
+
+	plainText, err := DecryptBytes(key, documentData)
 	if err != nil {
 		return serverpb.Document{}, err
 	}
-
-	if len(documentData) < aes.BlockSize {
-		panic("ciphertext too short")
-	}
-
-	iv := documentData[:aes.BlockSize]
-	documentData = documentData[aes.BlockSize:]
-
-	stream := cipher.NewCFBDecrypter(aesBlock, iv)
-	plainText := make([]byte, len(documentData))
-	stream.XORKeyStream(plainText, documentData)
-
-	err = decryptedDocument.Unmarshal(plainText)
-	if err != nil {
+	if err := decryptedDocument.Unmarshal(plainText); err != nil {
 		return serverpb.Document{}, err
 	}
 

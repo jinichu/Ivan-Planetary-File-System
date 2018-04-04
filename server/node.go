@@ -2,6 +2,10 @@ package server
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/sha1"
+	"encoding/asn1"
+	"encoding/base64"
 	"fmt"
 	"proj2_f5w9a_h6v9a_q7w9a_r8u8_w1c0b/serverpb"
 
@@ -105,29 +109,81 @@ func (s *Server) GetRemoteReference(ctx context.Context, req *serverpb.GetRemote
 		if len(routes) == 0 {
 			return nil, errors.Errorf("no routes to reference: %s", referenceID)
 		}
+		var err error
 		for _, route := range routes {
+			if err != nil {
+				s.log.Printf("GetRemoteReference intermediate error: %+v", err)
+				err = nil
+			}
+
 			numHops := req.GetNumHops()
 			if numHops == -1 {
 				numHops = route.NumHops
 			}
-			resp, err := route.Client.GetRemoteReference(ctx, &serverpb.GetRemoteReferenceRequest{
-				ReferenceId: referenceID,
-				NumHops:     numHops,
-			})
+			var resp *serverpb.GetRemoteReferenceResponse
+			err = func() error {
+				resp, err = route.Client.GetRemoteReference(ctx, &serverpb.GetRemoteReferenceRequest{
+					ReferenceId: referenceID,
+					NumHops:     numHops,
+				})
+				if err != nil {
+					return err
+				}
+
+				reference := resp.GetReference()
+
+				signature, err := base64.URLEncoding.DecodeString(reference.Signature)
+				if err != nil {
+					return err
+				}
+				var sig EcdsaSignature
+				if _, err := asn1.Unmarshal(signature, &sig); err != nil {
+					return err
+				}
+
+				hash, err := Hash(reference.PublicKey)
+				if err != nil {
+					return err
+				}
+				if hash != req.GetReferenceId() {
+					return errors.Errorf("public key doesn't match reference ID")
+				}
+
+				publicKey, err := UnmarshalPublic(reference.PublicKey)
+				if err != nil {
+					return err
+				}
+				ref2 := *reference
+				ref2.Signature = ""
+				bytes, err := ref2.Marshal()
+				if err != nil {
+					return err
+				}
+				refHash := sha1.Sum(bytes)
+				if !ecdsa.Verify(publicKey, refHash[:], sig.R, sig.S) {
+					return errors.Errorf("invalid signature received")
+				}
+
+				return nil
+			}()
 			if err != nil {
-				s.log.Printf("failed to find file: %+v", err)
 				continue
 			}
 
 			return resp, nil
 		}
-		return nil, errors.Errorf("failed to find reference: %s", referenceID)
+		return nil, errors.Wrapf(err, "failed to find reference: %s", referenceID)
 	} else if err != nil {
 		// Error wasn't an error relating to the reference not being found locally. Return.
 		return nil, err
 	}
 
+	var reference serverpb.Reference
+	if err := reference.Unmarshal(body); err != nil {
+		return nil, err
+	}
+
 	return &serverpb.GetRemoteReferenceResponse{
-		Reference: body,
+		Reference: &reference,
 	}, nil
 }
