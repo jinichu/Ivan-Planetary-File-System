@@ -1,0 +1,257 @@
+<title>Chaiter</title>
+
+<link href="https://fonts.googleapis.com/css?family=IBM+Plex+Mono|IBM+Plex+Sans" rel="stylesheet">
+<link rel="import" href="https://cdn.rawgit.com/download/polymer-cdn/2.3.1/lib/polymer/polymer.html">
+<link rel="import" href="https://cdn.rawgit.com/download/polymer-cdn/2.3.1/lib/iron-localstorage/iron-localstorage.html">
+<link rel="import" href="https://cdn.rawgit.com/download/polymer-cdn/2.3.1/lib/paper-input/paper-input.html">
+<link rel="import" href="https://cdn.rawgit.com/download/polymer-cdn/2.3.1/lib/paper-button/paper-button.html">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jsrsasign/8.0.9/jsrsasign-all-min.js" integrity="sha256-PZhswUGskgJrQKp7oCrGOO6xTIkVZBgqD5zKXhsnE6c=" crossorigin="anonymous"></script>
+
+<main-app></main-app>
+
+<style>
+body {
+  display: flex;
+  margin: 0;
+}
+</style>
+
+<script>
+function get (doc) {
+  return fetch('/document/'+doc).then((resp) => resp.json())
+}
+
+function getReference (ref) {
+  return fetch('/reference/'+ref).then((resp) => resp.json()).catch(() => {
+    return {}
+  })
+}
+
+function add (document) {
+  return fetch('/api/v1/document', {
+    body: JSON.stringify({
+      document
+    }),
+    headers: {
+      'content-type': 'application/json'
+    },
+    method: 'POST'
+  }).then((resp) => resp.json())
+}
+
+function addReference (priv_key, record) {
+  return fetch('/api/v1/reference', {
+    body: JSON.stringify({
+      priv_key: btoa(priv_key), record,
+    }),
+    headers: {
+      'content-type': 'application/json'
+    },
+    method: 'POST'
+  }).then((resp) => resp.json())
+}
+
+function publish (priv_key, message) {
+  return fetch('/api/v1/publish', {
+    body: JSON.stringify({
+      priv_key: btoa(priv_key), message,
+    }),
+    headers: {
+      'content-type': 'application/json'
+    },
+    method: 'POST'
+  }).then((resp) => resp.json())
+}
+
+function subscribe (id, cb) {
+  fetch("/subscribe/"+id).then((response) => {
+    const reader = response.body.getReader()
+    function push () {
+      reader.read().then(({ done, value }) => {
+        if (done) {
+          return
+        }
+
+        cb(value)
+
+        push()
+      })
+    }
+
+    push();
+  });
+}
+</script>
+
+<dom-module id="tweet-feed">
+  <template>
+    <style>
+      .tweet {
+        border: 1px solid #eee;
+        padding: 8px;
+        margin: 8px;
+      }
+    </style>
+
+    <template is="dom-repeat" items="[[state.tweets]]">
+      <div class="tweet">
+        <p>[[state.name]] - [[item.time]]</p>
+        <p>[[item.body]]</p>
+        <template is="dom-if" if="[[item.image]]">
+          <img src="[[item.image]]">
+        </template>
+      </div>
+    </template>
+  </template>
+  <script>
+    class TweetFeed extends Polymer.Element {
+      static get is () { return 'tweet-feed' }
+
+      static get observers () {
+        return [
+          'subscribe(userId)',
+          'loadState(userId)',
+        ]
+      }
+
+      subscribe (userID) {
+        subscribe(userID, (value) => {
+          this.loadState(this.userId)
+        })
+      }
+
+      loadState (userID) {
+        if (!userID) {
+          return
+        }
+
+        return getReference(userID).then((state) => {
+          console.log(state)
+          this.state = state
+        })
+      }
+    }
+    customElements.define(TweetFeed.is, TweetFeed)
+  </script>
+</dom-module>
+
+<dom-module id="main-app">
+  <template>
+    <style>
+      :host {
+        margin: 0 16px;
+        font-family: 'IBM Plex Sans', 'Open Sans', 'Noto Sans', sans-serif;
+      }
+      pre {
+        font-family: 'IBM Plex Mono', monospace;
+      }
+      .controls {
+        display: flex;
+      }
+      paper-input {
+        flex-grow: 1;
+      }
+    </style>
+    <h1>🐦 Chaiter</h1>
+    <pre>UserID: [[userID]]</pre>
+    <a target="_blank" href="/reference/[[userID]]">View Raw Data</a>
+
+    <div class="controls">
+      <paper-input label="Name" value="{{state.name}}"></paper-input>
+      <paper-button on-tap="saveState" raised>Save</paper-button>
+    </div>
+
+    <div class="controls">
+      <paper-input label="Tweet" value="{{body}}"></paper-input>
+      <paper-button on-tap="tweet" raised>Publish Spec</paper-button>
+    </div>
+
+    <h2>Specs</h2>
+    <paper-input label="Viewing User" value="{{viewUser}}"></paper-input>
+    <a target="_blank" href="/reference/[[viewUser]]">View Raw Data</a>
+
+    <tweet-feed user-id="[[viewUser]]"></tweet-feed>
+
+    <iron-localstorage
+      name="private-key"
+      value="{{privateKey}}"
+      on-iron-localstorage-load-empty="generateKey">
+    </iron-localstorage>
+
+    <iron-localstorage
+      name="user-id"
+      value="{{userID}}">
+    </iron-localstorage>
+  </template>
+  <script>
+class MainApp extends Polymer.Element {
+  static get is () {
+    return 'main-app'
+  }
+
+  static get observers () {
+    return [
+      'loadState(userID)',
+    ]
+  }
+
+  connectedCallback () {
+    super.connectedCallback()
+  }
+
+  generateKey() {
+    const crypto = new KJUR.crypto.ECDSA()
+    const key = crypto.generateKeyPairHex()
+    let pem = KEYUTIL.getPEM(crypto, "PKCS1PRV")
+    this.privateKey = pem.slice(pem.indexOf('-----BEGIN EC PRIVATE KEY-----'))
+
+    this.saveState()
+  }
+
+  saveState () {
+    return add({
+      data: btoa(JSON.stringify(this.state)),
+      contentType: 'application/json'
+    }).then((resp) => {
+      const documentId = resp.access_id
+      return addReference(this.privateKey, 'document@'+documentId)
+    }).then((resp) => {
+      this.userID = resp.reference_id
+
+      return publish(this.privateKey, 'update')
+    })
+  }
+
+  loadState (userID) {
+    if (!userID) {
+      return
+    }
+
+    this.viewUser = userID
+
+    return getReference(userID).then((state) => {
+      console.log(state)
+      this.state = state
+    })
+  }
+
+  tweet () {
+    if (!this.state.tweets) {
+      this.set('state.tweets', [])
+    }
+    if (!this.body) {
+      return
+    }
+    this.unshift('state.tweets', {
+      time: new Date().toISOString(),
+      body: this.body,
+      image: this.image
+    })
+    this.body = ''
+    this.image = ''
+    this.saveState()
+  }
+}
+customElements.define(MainApp.is, MainApp)
+  </script>
+</dom-module>

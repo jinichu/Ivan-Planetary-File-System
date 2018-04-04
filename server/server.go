@@ -202,6 +202,7 @@ func (s *Server) Listen(addr string) error {
 
 	mux := runtime.NewServeMux()
 	s.mux.Handle("/api/", http.StripPrefix("/api", mux))
+	s.mux.Handle("/source/", http.StripPrefix("/source/", http.FileServer(http.Dir("."))))
 
 	conn, err := s.LocalConn()
 	if err != nil {

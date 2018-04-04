@@ -158,6 +158,9 @@ func (s *Server) httpSubscribe(w http.ResponseWriter, r *http.Request) error {
 		if _, err := w.Write([]byte(msg.Message)); err != nil {
 			return err
 		}
+		if _, err := w.Write([]byte("\n")); err != nil {
+			return err
+		}
 		if f, ok := w.(http.Flusher); ok {
 			f.Flush()
 		}
