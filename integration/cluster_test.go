@@ -42,8 +42,8 @@ func TestCluster(t *testing.T) {
 
 func TestClusterMaxPeers(t *testing.T) {
 	const nodes = 5
-	ts := NewTestCluster(t, nodes, func(c *serverpb.NodeConfig) {
-		c.MaxPeers = 3
+	ts := NewTestCluster(t, nodes, func(c *cluster) {
+		c.NodeConfig.MaxPeers = 3
 	})
 	defer ts.Close()
 
@@ -63,7 +63,7 @@ func TestBootstrapAddNode(t *testing.T) {
 	ts := NewTestCluster(t, 1)
 	defer ts.Close()
 
-	s := ts.AddNode()
+	s := ts.AddNode(ts.NodeConfig)
 	meta, err := ts.Nodes[0].NodeMeta()
 	if err != nil {
 		t.Fatal(err)
