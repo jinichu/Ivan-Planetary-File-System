@@ -37,13 +37,12 @@ func (s *Server) peersWithFile(documentID string) []Route {
 	defer s.mu.Unlock()
 
 	var routes []Route
-	for id, client := range s.mu.peers {
-		table, ok := s.mu.routingTables[id]
-		if !ok {
+	for id, peer := range s.mu.peers {
+		if peer.routingTable == nil {
 			continue
 		}
 
-		for hops, bf := range table.Filters {
+		for hops, bf := range peer.routingTable.Filters {
 			if len(bf.Data) == 0 {
 				continue
 			}
@@ -57,7 +56,7 @@ func (s *Server) peersWithFile(documentID string) []Route {
 			if filter.TestString(documentID) {
 				routes = append(routes, Route{
 					ID:      id,
-					Client:  client,
+					Client:  peer.client,
 					NumHops: int32(hops + 1),
 				})
 			}
@@ -72,16 +71,10 @@ func (s *Server) peersWithFile(documentID string) []Route {
 }
 
 func (s *Server) addToRoutingTable(documentID string) error {
-	meta, err := s.NodeMeta()
-	if err != nil {
-		return err
-	}
-	id := meta.Id
-
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	table := s.mu.routingTables[id]
+	table := s.mu.routingTable
 
 	filter := createNewBloomFilter()
 	if len(table.Filters) > 0 {
@@ -103,18 +96,14 @@ func (s *Server) addToRoutingTable(documentID string) error {
 	} else {
 		table.Filters = append(table.Filters, entry)
 	}
-	s.mu.routingTables[id] = table
+	s.mu.routingTable = table
 
 	return nil
 }
 
 // GetRoutingTable returns the local nodes routing table.
 func (s *Server) GetRoutingTable(ctx context.Context, previousRT *serverpb.RoutingTable) (*serverpb.RoutingTable, error) {
-	routingTable, err := s.getLocalRT()
-	if err != nil {
-		return nil, err
-	}
-	return routingTable, nil
+	return s.getLocalRT(), nil
 }
 
 func (s *Server) ReceiveNewRoutingTable() {
@@ -122,27 +111,31 @@ func (s *Server) ReceiveNewRoutingTable() {
 	for {
 		select {
 		case <-ticker.C:
-		case <-s.stopper.ShouldStop():
+		case <-s.ctx.Done():
 			return
 		}
 
-		clients := map[string]serverpb.NodeClient{}
+		peers := map[string]*peer{}
 
+		tableCount := 0
 		s.mu.Lock()
-		s.log.Printf("fetching routing tables... have %d", len(s.mu.routingTables))
-		for id, client := range s.mu.peers {
-			clients[id] = client
+		for id, peer := range s.mu.peers {
+			peers[id] = peer
+			if peer.routingTable != nil {
+				tableCount += 1
+			}
 		}
 		s.mu.Unlock()
+		s.log.Printf("fetching routing tables... have %d", tableCount)
 
-		for id, client := range clients {
-			ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
+		for id, peer := range peers {
+			ctx, _ := context.WithTimeout(s.ctx, 10*time.Second)
 
-			if err := s.receiveTableOfPeer(ctx, id, client); err != nil {
+			if err := s.receiveTableOfPeer(ctx, id, peer); err != nil {
 				s.log.Printf("get routing table error: %s: %+v", color.RedString(id), err)
 
 				s.mu.Lock()
-				delete(s.mu.routingTables, id)
+				peer.routingTable = nil
 				s.mu.Unlock()
 
 				continue
@@ -161,24 +154,20 @@ func (s *Server) getLocalId() (string, error) {
 	return meta.Id, nil
 }
 
-func (s *Server) getLocalRT() (*serverpb.RoutingTable, error) {
-	meta, err := s.NodeMeta()
-	if err != nil {
-		return nil, err
-	}
+func (s *Server) getLocalRT() *serverpb.RoutingTable {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	rt := s.mu.routingTables[meta.Id]
-	return &rt, nil
+	rt := s.mu.routingTable
+	return &rt
 }
 
 func (s *Server) checkNumHopsToGetToFile(documentID string) (int, error) {
-	localMeta, err := s.NodeMeta()
-	if err != nil {
-		return 0, err
-	}
-	rt := s.mu.routingTables[localMeta.Id]
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	rt := s.mu.routingTable
+
 	for i, bf := range rt.Filters {
 		if len(bf.Data) == 0 {
 			continue
@@ -197,17 +186,8 @@ func (s *Server) checkNumHopsToGetToFile(documentID string) (int, error) {
 	return 0, errors.Errorf("missing Document: %+v", documentID)
 }
 
-func (s *Server) receiveTableOfPeer(ctx context.Context, remoteID string, client serverpb.NodeClient) error {
-	remoteTable, err := client.GetRoutingTable(ctx, &serverpb.RoutingTable{})
-	if err != nil {
-		return err
-	}
-
-	localTable, err := s.getLocalRT()
-	if err != nil {
-		return err
-	}
-	localID, err := s.getLocalId()
+func (s *Server) receiveTableOfPeer(ctx context.Context, remoteID string, peer *peer) error {
+	remoteTable, err := peer.client.GetRoutingTable(ctx, &serverpb.RoutingTable{})
 	if err != nil {
 		return err
 	}
@@ -215,12 +195,12 @@ func (s *Server) receiveTableOfPeer(ctx context.Context, remoteID string, client
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.mu.routingTables[remoteID] = *remoteTable
-	merged, err := mergeReceived(localTable, remoteTable)
+	peer.routingTable = remoteTable
+	merged, err := mergeReceived(&s.mu.routingTable, remoteTable)
 	if err != nil {
 		return err
 	}
-	s.mu.routingTables[localID] = *merged
+	s.mu.routingTable = *merged
 
 	return nil
 }

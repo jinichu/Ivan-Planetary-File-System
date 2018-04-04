@@ -102,7 +102,7 @@ func (s *Server) GetPeers(ctx context.Context, in *serverpb.GetPeersRequest) (*s
 }
 
 func (s *Server) AddPeer(ctx context.Context, in *serverpb.AddPeerRequest) (*serverpb.AddPeerResponse, error) {
-	err := s.BootstrapAddNode(in.GetAddr())
+	err := s.BootstrapAddNode(ctx, in.GetAddr())
 	if err != nil {
 		return nil, err
 	}

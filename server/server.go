@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/tls"
 	"log"
@@ -10,12 +11,12 @@ import (
 	"path/filepath"
 	"proj2_f5w9a_h6v9a_q7w9a_r8u8_w1c0b/config"
 	"proj2_f5w9a_h6v9a_q7w9a_r8u8_w1c0b/serverpb"
-	"proj2_f5w9a_h6v9a_q7w9a_r8u8_w1c0b/stopper"
 	"strings"
 	"sync"
 
 	"github.com/dgraph-io/badger"
 	"github.com/fatih/color"
+	"github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"github.com/pkg/errors"
 
 	"golang.org/x/sync/errgroup"
@@ -35,36 +36,40 @@ type Server struct {
 	cert       *tls.Certificate
 	certPublic string
 
-	stopper *stopper.Stopper
-	mux     *http.ServeMux
+	ctx    context.Context
+	cancel context.CancelFunc
+	mux    *http.ServeMux
 
 	mu struct {
 		sync.Mutex
 
-		l              net.Listener
-		grpcServer     *grpc.Server
-		httpServer     *http.Server
-		peerMeta       map[string]serverpb.NodeMeta
-		peers          map[string]serverpb.NodeClient
-		peerConns      map[string]*grpc.ClientConn
-		routingTables  map[string]serverpb.RoutingTable
+		l               net.Listener
+		grpcServer      *grpc.Server
+		httpServer      *http.Server
+		grpcGatewayConn *grpc.ClientConn
+
+		peerMeta map[string]serverpb.NodeMeta
+		peers    map[string]*peer
+
 		channels       map[string]*channel
 		nextListenerID int
+
+		routingTable serverpb.RoutingTable
 	}
 }
 
 // New returns a new server.
 func New(c serverpb.NodeConfig) (*Server, error) {
+	ctx, cancel := context.WithCancel(context.Background())
 	s := &Server{
-		log:     log.New(os.Stderr, "", log.Flags()|log.Lshortfile),
-		config:  c,
-		stopper: stopper.New(),
-		mux:     http.NewServeMux(),
+		log:    log.New(os.Stderr, "", log.Flags()|log.Lshortfile),
+		config: c,
+		mux:    http.NewServeMux(),
+		ctx:    ctx,
+		cancel: cancel,
 	}
 	s.mu.peerMeta = map[string]serverpb.NodeMeta{}
-	s.mu.peers = map[string]serverpb.NodeClient{}
-	s.mu.peerConns = map[string]*grpc.ClientConn{}
-	s.mu.routingTables = map[string]serverpb.RoutingTable{}
+	s.mu.peers = map[string]*peer{}
 	s.mu.channels = map[string]*channel{}
 
 	if len(c.Path) == 0 {
@@ -103,10 +108,20 @@ func (s *Server) Close() error {
 
 	err := errors.New("shutting down...")
 	s.log.Printf("%v", err)
-	s.stopper.Stop()
+	s.cancel()
+
+	for _, p := range s.mu.peers {
+		p.closeLocked()
+	}
 
 	if s.mu.grpcServer != nil {
 		s.mu.grpcServer.Stop()
+	}
+
+	if s.mu.grpcGatewayConn != nil {
+		if err := s.mu.grpcGatewayConn.Close(); err != nil {
+			return err
+		}
 	}
 
 	if s.mu.httpServer != nil {
@@ -182,5 +197,22 @@ func (s *Server) Listen(addr string) error {
 		}
 		return nil
 	})
+
+	mux := runtime.NewServeMux()
+	s.mux.Handle("/api/", http.StripPrefix("/api", mux))
+
+	conn, err := s.LocalConn()
+	if err != nil {
+		return err
+	}
+
+	s.mu.Lock()
+	s.mu.grpcGatewayConn = conn
+	s.mu.Unlock()
+
+	if err := serverpb.RegisterClientHandler(s.ctx, mux, conn); err != nil {
+		return err
+	}
+
 	return g.Wait()
 }

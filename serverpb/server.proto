@@ -1,6 +1,8 @@
 syntax = "proto3";
 package serverpb;
 
+import "google/api/annotations.proto";
+
 message NodeMeta {
   string id = 1;
   string public_key = 2;
@@ -127,14 +129,46 @@ message AddReferenceResponse {
 }
 
 service Client {
-  rpc Get(GetRequest) returns (GetResponse) {}
-  rpc Add(AddRequest) returns (AddResponse) {}
+  rpc Get(GetRequest) returns (GetResponse) {
+		option (google.api.http) = {
+			get: "/v1/document/{access_id}"
+		};
+  }
+  rpc Add(AddRequest) returns (AddResponse) {
+    option (google.api.http) = {
+      post: "/v1/document"
+      body: "*"
+    };
+  }
   rpc AddDirectory(AddDirectoryRequest) returns (AddDirectoryResponse) {}
-  rpc GetPeers(GetPeersRequest) returns (GetPeersResponse) {}
-  rpc AddPeer(AddPeerRequest) returns (AddPeerResponse) {}
-  rpc GetReference(GetReferenceRequest) returns (GetReferenceResponse) {}
-  rpc AddReference(AddReferenceRequest) returns (AddReferenceResponse) {}
-  rpc Publish(PublishRequest) returns (PublishResponse) {}
+  rpc GetPeers(GetPeersRequest) returns (GetPeersResponse) {
+		option (google.api.http) = {
+			get: "/v1/peers"
+		};
+  }
+  rpc AddPeer(AddPeerRequest) returns (AddPeerResponse) {
+    option (google.api.http) = {
+      post: "/v1/peers"
+      body: "*"
+    };
+  }
+  rpc GetReference(GetReferenceRequest) returns (GetReferenceResponse) {
+		option (google.api.http) = {
+			get: "/v1/reference/{reference_id}"
+		};
+  }
+  rpc AddReference(AddReferenceRequest) returns (AddReferenceResponse) {
+    option (google.api.http) = {
+      post: "/v1/reference"
+      body: "*"
+    };
+  }
+  rpc Publish(PublishRequest) returns (PublishResponse) {
+    option (google.api.http) = {
+      post: "/v1/publish"
+      body: "*"
+    };
+  }
   rpc SubscribeClient(SubscribeRequest) returns (stream Message) {}
 }
   // ipfs get <hash>

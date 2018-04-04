@@ -37,7 +37,7 @@ func run() error {
 		addrs := strings.Split(*bootstrap, ",")
 		go func() {
 			for _, addr := range addrs {
-				if err := s.BootstrapAddNode(addr); err != nil {
+				if err := s.BootstrapAddNode(nil, addr); err != nil {
 					log.Printf("bootstrap error: %+v", err)
 				}
 			}

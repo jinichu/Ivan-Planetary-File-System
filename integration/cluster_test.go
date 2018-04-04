@@ -68,7 +68,7 @@ func TestBootstrapAddNode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.BootstrapAddNode(meta.Addrs[0]); err != nil {
+	if err := s.BootstrapAddNode(nil, meta.Addrs[0]); err != nil {
 		t.Fatal(err)
 	}
 
@@ -241,7 +241,7 @@ func TestClusterPubSub(t *testing.T) {
 			return err
 		})
 
-		conn, err := node.TestConn()
+		conn, err := node.LocalConn()
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -139,7 +139,7 @@ func (s *Server) resolveDoc(ctx context.Context, id string, path []string) (*ser
 }
 
 func (s *Server) httpSubscribe(w http.ResponseWriter, r *http.Request) error {
-	conn, err := s.TestConn()
+	conn, err := s.LocalConn()
 	if err != nil {
 		return err
 	}

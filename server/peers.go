@@ -142,7 +142,7 @@ func (s *Server) AddNode(meta serverpb.NodeMeta) error {
 		return nil
 	}
 
-	ctx := context.TODO()
+	ctx, cancel := context.WithCancel(s.ctx)
 	conn, err := s.connectNode(ctx, meta)
 	if err != nil {
 		return err
@@ -158,12 +158,20 @@ func (s *Server) AddNode(meta serverpb.NodeMeta) error {
 		return errors.Errorf("expected node with ID %+v; got %+v", meta, resp.Meta)
 	}
 
+	peer := &peer{
+		ctx:    ctx,
+		cancel: cancel,
+		client: client,
+		conn:   conn,
+		s:      s,
+		meta:   meta,
+	}
+
 	s.mu.Lock()
 	// make sure there isn't a duplicate connection
 	_, ok := s.mu.peers[meta.Id]
 	if !ok {
-		s.mu.peers[meta.Id] = client
-		s.mu.peerConns[meta.Id] = conn
+		s.mu.peers[meta.Id] = peer
 	}
 	s.mu.Unlock()
 
@@ -176,29 +184,7 @@ func (s *Server) AddNode(meta serverpb.NodeMeta) error {
 		}
 	}
 
-	go func() {
-		ticker := time.NewTicker(heartBeatInterval)
-		for {
-			select {
-			case <-ticker.C:
-			case <-s.stopper.ShouldStop():
-				return
-			}
-
-			ctx, _ := context.WithTimeout(ctx, dialTimeout)
-			if _, err := client.HeartBeat(ctx, &serverpb.HeartBeatRequest{}); err != nil {
-				s.log.Printf("heartbeat error: %s: %+v", color.RedString(meta.Id), err)
-				s.mu.Lock()
-				delete(s.mu.peers, meta.Id)
-				delete(s.mu.peerConns, meta.Id)
-				s.mu.Unlock()
-				if err := conn.Close(); err != nil {
-					s.log.Printf("failed to close connection: %s: %+v", color.RedString(meta.Id), err)
-				}
-				return
-			}
-		}
-	}()
+	go peer.heartbeat()
 
 	if err := s.AddNodes(resp.ConnectedPeers, resp.KnownPeers); err != nil {
 		return err
@@ -239,32 +225,22 @@ func validateAddr(s string) error {
 	return nil
 }
 
-func (s *Server) TestConn() (*grpc.ClientConn, error) {
+func (s *Server) LocalConn() (*grpc.ClientConn, error) {
 	meta, err := s.NodeMeta()
 	if err != nil {
 		return nil, err
 	}
-	addr := meta.Addrs[0]
-	creds := credentials.NewTLS(&tls.Config{
-		Rand:               rand.Reader,
-		InsecureSkipVerify: true,
-	})
-	ctx := context.Background()
-	ctxDial, _ := context.WithTimeout(ctx, dialTimeout)
-	return grpc.DialContext(ctxDial, addr,
-		grpc.WithTransportCredentials(creds),
-		grpc.WithBlock(),
-		grpc.WithDefaultCallOptions(
-			grpc.MaxCallRecvMsgSize(int(config.GRPCMsgSize)),
-			grpc.MaxCallSendMsgSize(int(config.GRPCMsgSize)),
-		),
-	)
+	return s.connectNode(s.ctx, meta)
 }
 
 // BootstrapAddNode adds a node by using an address to do an insecure connection
 // to a node, fetch node metadata and then reconnect via an encrypted
 // connection.
-func (s *Server) BootstrapAddNode(addr string) error {
+func (s *Server) BootstrapAddNode(ctx context.Context, addr string) error {
+	if ctx == nil {
+		ctx = s.ctx
+	}
+
 	if err := validateAddr(addr); err != nil {
 		return err
 	}
@@ -273,7 +249,6 @@ func (s *Server) BootstrapAddNode(addr string) error {
 		Rand:               rand.Reader,
 		InsecureSkipVerify: true,
 	})
-	ctx := context.TODO()
 	ctxDial, _ := context.WithTimeout(ctx, dialTimeout)
 	conn, err := grpc.DialContext(ctxDial, addr,
 		grpc.WithTransportCredentials(creds),
@@ -294,4 +269,50 @@ func (s *Server) BootstrapAddNode(addr string) error {
 		return err
 	}
 	return s.AddNode(*meta)
+}
+
+type peer struct {
+	meta         serverpb.NodeMeta
+	ctx          context.Context
+	cancel       context.CancelFunc
+	client       serverpb.NodeClient
+	conn         *grpc.ClientConn
+	routingTable *serverpb.RoutingTable
+
+	s *Server
+}
+
+func (p *peer) Close() {
+	p.s.mu.Lock()
+	defer p.s.mu.Unlock()
+
+	p.closeLocked()
+}
+
+func (p *peer) closeLocked() {
+	delete(p.s.mu.peers, p.meta.Id)
+
+	p.cancel()
+
+	if err := p.conn.Close(); err != nil {
+		p.s.log.Printf("failed to close connection: %s: %+v", color.RedString(p.meta.Id), err)
+	}
+}
+
+func (p *peer) heartbeat() {
+	ticker := time.NewTicker(heartBeatInterval)
+	for {
+		select {
+		case <-ticker.C:
+		case <-p.ctx.Done():
+			return
+		}
+
+		ctx, _ := context.WithTimeout(p.ctx, dialTimeout)
+		if _, err := p.client.HeartBeat(ctx, &serverpb.HeartBeatRequest{}); err != nil {
+			p.s.log.Printf("heartbeat error: %s: %+v", color.RedString(p.meta.Id), err)
+			p.Close()
+			return
+		}
+	}
 }
