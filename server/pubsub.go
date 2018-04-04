@@ -108,9 +108,17 @@ func (s *Server) Publish(ctx context.Context, req *serverpb.PublishRequest) (*se
 	if err != nil {
 		return nil, err
 	}
+	key, err := GenerateAESKeyFromECDSA(privKey)
+	if err != nil {
+		return nil, err
+	}
+	encryptedValue, err := EncryptBytes(key, []byte(req.GetMessage()))
+	if err != nil {
+		return nil, err
+	}
 	// Create reference
 	msg := &serverpb.Message{
-		Message:   req.GetMessage(),
+		Message:   string(encryptedValue),
 		PublicKey: pubKey,
 		Timestamp: time.Now().Unix(),
 	}
@@ -159,8 +167,40 @@ func (s *Server) Publish(ctx context.Context, req *serverpb.PublishRequest) (*se
 }
 
 func (s *Server) SubscribeClient(req *serverpb.SubscribeRequest, stream serverpb.Client_SubscribeClientServer) error {
+	// Trim the encryption key off the end of the channel ID.
+	channelId, accessKey, err := SplitAccessID(req.ChannelId)
+	if err != nil {
+		return err
+	}
+	req.ChannelId = channelId
 	req.NumHops = -1
-	return s.Subscribe(req, stream)
+	conn, err := s.LocalConn()
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	cstream, err := serverpb.NewNodeClient(conn).Subscribe(stream.Context(), req)
+	if err != nil {
+		return err
+	}
+
+	for {
+		msg, err := cstream.Recv()
+		if err != nil {
+			return err
+		}
+
+		message, err := DecryptBytes(accessKey, []byte(msg.Message))
+		if err != nil {
+			return err
+		}
+		msg.Message = string(message)
+
+		if err := stream.Send(msg); err != nil {
+			return err
+		}
+	}
 }
 
 func (s *Server) NumListeners(referenceID string) int {

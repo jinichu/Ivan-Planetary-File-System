@@ -15,7 +15,7 @@ import (
 	"github.com/pkg/errors"
 )
 
-func splitAccessID(id string) (string, []byte, error) {
+func SplitAccessID(id string) (string, []byte, error) {
 	parts := strings.Split(id, ":")
 	if len(parts) != 2 {
 		return "", nil, errors.Errorf("AccessId should have a :")
@@ -29,7 +29,7 @@ func splitAccessID(id string) (string, []byte, error) {
 }
 
 func (s *Server) Get(ctx context.Context, in *serverpb.GetRequest) (*serverpb.GetResponse, error) {
-	documentId, accessKey, err := splitAccessID(in.GetAccessId())
+	documentId, accessKey, err := SplitAccessID(in.GetAccessId())
 	if err != nil {
 		return nil, err
 	}
@@ -113,7 +113,7 @@ func (s *Server) AddPeer(ctx context.Context, in *serverpb.AddPeerRequest) (*ser
 }
 
 func (s *Server) GetReference(ctx context.Context, in *serverpb.GetReferenceRequest) (*serverpb.GetReferenceResponse, error) {
-	referenceID, accessKey, err := splitAccessID(in.GetReferenceId())
+	referenceID, accessKey, err := SplitAccessID(in.GetReferenceId())
 	if err != nil {
 		return nil, err
 	}
@@ -148,7 +148,7 @@ func (s *Server) AddReference(ctx context.Context, in *serverpb.AddReferenceRequ
 		return nil, err
 	}
 
-	key, err := GenerateAESKey()
+	key, err := GenerateAESKeyFromECDSA(privKey)
 	if err != nil {
 		return nil, err
 	}

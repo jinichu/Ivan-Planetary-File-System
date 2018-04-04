@@ -8,9 +8,11 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha1"
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/asn1"
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
@@ -315,6 +317,36 @@ func GenerateAESKey() ([]byte, error) {
 		return nil, err
 	}
 	return key, nil
+}
+
+type DevZero int
+
+func (z DevZero) Read(b []byte) (n int, err error) {
+	for i := range b {
+		b[i] = 0
+	}
+
+	return len(b), nil
+}
+
+func GenerateAESKeyFromECDSA(key *ecdsa.PrivateKey) ([]byte, error) {
+	body := []byte(`yes this is some body yes wow very body`)
+	r, s, err := ecdsa.Sign(DevZero(0), key, body)
+	if err != nil {
+		return nil, err
+	}
+	sig, err := asn1.Marshal(EcdsaSignature{R: r, S: s})
+	if err != nil {
+		return nil, err
+	}
+	h := sha256.New()
+	if _, err := h.Write(body); err != nil {
+		return nil, err
+	}
+	if _, err := h.Write(sig); err != nil {
+		return nil, err
+	}
+	return h.Sum(nil), nil
 }
 
 func DecryptBytes(key, body []byte) ([]byte, error) {

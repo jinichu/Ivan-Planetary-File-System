@@ -237,7 +237,7 @@ func TestClusterPubSub(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		referenceID := resp.ReferenceId
+		accessID := resp.ReferenceId
 
 		var mu struct {
 			sync.Mutex
@@ -250,7 +250,7 @@ func TestClusterPubSub(t *testing.T) {
 		for i, node := range ts.Nodes {
 			util.SucceedsSoon(t, func() error {
 				if _, err := node.GetReference(ctx, &serverpb.GetReferenceRequest{
-					ReferenceId: referenceID,
+					ReferenceId: accessID,
 				}); err != nil {
 					return errors.Wrapf(err, "node %d", i)
 				}
@@ -265,7 +265,7 @@ func TestClusterPubSub(t *testing.T) {
 
 			client := serverpb.NewClientClient(conn)
 			stream, err := client.SubscribeClient(ctx, &serverpb.SubscribeRequest{
-				ChannelId: referenceID,
+				ChannelId: accessID,
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -286,6 +286,10 @@ func TestClusterPubSub(t *testing.T) {
 			}()
 		}
 
+		referenceID, _, err := server.SplitAccessID(accessID)
+		if err != nil {
+			t.Fatal(err)
+		}
 		util.SucceedsSoon(t, func() error {
 			n := node.NumListeners(referenceID)
 			if n != len(ts.Nodes) {
