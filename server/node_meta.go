@@ -20,26 +20,27 @@ import (
 
 func validateNodeMeta(meta serverpb.NodeMeta) error {
 	if meta.Id == "" {
-		return errors.Errorf("%+v missing Id", meta)
+		return errors.Errorf("missing Id")
 	}
 	if meta.Signature == "" {
-		return errors.Errorf("%+v: missing Signature", meta)
+		return errors.Errorf("missing Signature")
 	}
 	if meta.Cert == "" {
-		return errors.Errorf("%+v: missing Cert", meta)
+		return errors.Errorf("missing Cert")
 	}
 	if meta.PublicKey == "" {
-		return errors.Errorf("%+v: missing PublicKey", meta)
+		return errors.Errorf("missing PublicKey")
 	}
 	if meta.Updated == 0 {
-		return errors.Errorf("%+v: missing Updated", meta)
+		return errors.Errorf("missing Updated")
 	}
 	if len(meta.Addrs) == 0 {
-		return errors.Errorf("%+v: missing Addrs", meta)
+		return errors.Errorf("missing Addrs")
 	}
 
-	if nodeMetaId(meta) != meta.Id {
-		return errors.Errorf("%+v: invalid Id", meta)
+	wantId := nodeMetaId(meta)
+	if wantId != meta.Id {
+		return errors.Errorf("invalid Id: got %q, expected %q", meta.Id, wantId)
 	}
 
 	publicKey, err := nodeMetaPublicKey(meta)

@@ -48,8 +48,9 @@ type Server struct {
 		httpServer      *http.Server
 		grpcGatewayConn *grpc.ClientConn
 
-		peerMeta map[string]serverpb.NodeMeta
-		peers    map[string]*peer
+		peerMeta   map[string]serverpb.NodeMeta
+		peers      map[string]*peer
+		connecting map[string]struct{}
 
 		channels       map[string]*channel
 		nextListenerID int
@@ -71,6 +72,7 @@ func New(c serverpb.NodeConfig) (*Server, error) {
 	s.mu.peerMeta = map[string]serverpb.NodeMeta{}
 	s.mu.peers = map[string]*peer{}
 	s.mu.channels = map[string]*channel{}
+	s.mu.connecting = map[string]struct{}{}
 
 	if len(c.Path) == 0 {
 		return nil, errors.Errorf("config: path must not be empty")

@@ -37,7 +37,10 @@ func (s *Server) Hello(ctx context.Context, req *serverpb.HelloRequest) (*server
 	if reqMeta == nil {
 		return nil, errors.Errorf("Meta field required")
 	}
-	if err := s.AddNode(*reqMeta); err != nil {
+
+	// Force connection back if we got a hello request. We want to avoid one way
+	// links.
+	if err := s.AddNode(*reqMeta, true); err != nil {
 		return nil, err
 	}
 
@@ -113,8 +116,8 @@ func (s *Server) NumConnections() int {
 	return len(s.mu.peers)
 }
 
-// AddNode adds a node to the server.
-func (s *Server) AddNode(meta serverpb.NodeMeta) error {
+// AddNode adds a node to the server. force disables new/MaxPeers checking.
+func (s *Server) AddNode(meta serverpb.NodeMeta, force bool) error {
 	localMeta, err := s.NodeMeta()
 	if err != nil {
 		return err
@@ -134,13 +137,31 @@ func (s *Server) AddNode(meta serverpb.NodeMeta) error {
 	if err := s.persistNodeMeta(meta); err != nil {
 		return err
 	}
-	if !new {
+
+	s.mu.Lock()
+	_, alreadyPeer := s.mu.peers[meta.Id]
+	s.mu.Unlock()
+
+	if (!new || s.NumConnections() >= int(s.config.MaxPeers)) && !force || alreadyPeer {
 		return nil
 	}
 
-	if s.NumConnections() >= int(s.config.MaxPeers) {
+	// avoid duplicate connections
+	s.mu.Lock()
+	_, connecting := s.mu.connecting[meta.Id]
+	s.mu.connecting[meta.Id] = struct{}{}
+	s.mu.Unlock()
+
+	if connecting {
 		return nil
 	}
+
+	defer func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+
+		delete(s.mu.connecting, meta.Id)
+	}()
 
 	ctx, cancel := context.WithCancel(s.ctx)
 	conn, err := s.connectNode(ctx, meta)
@@ -179,9 +200,7 @@ func (s *Server) AddNode(meta serverpb.NodeMeta) error {
 	// connection.
 	if ok {
 		s.log.Printf("found duplicate connection to: %s", color.RedString(meta.Id))
-		if err := conn.Close(); err != nil {
-			return err
-		}
+		return conn.Close()
 	}
 
 	go peer.heartbeat()
@@ -199,12 +218,12 @@ func (s *Server) AddNode(meta serverpb.NodeMeta) error {
 // the cross section bandwidth of the graph.
 func (s *Server) AddNodes(connected []*serverpb.NodeMeta, known []*serverpb.NodeMeta) error {
 	for _, meta := range known {
-		if err := s.AddNode(*meta); err != nil {
+		if err := s.AddNode(*meta, false); err != nil {
 			return err
 		}
 	}
 	for _, meta := range connected {
-		if err := s.AddNode(*meta); err != nil {
+		if err := s.AddNode(*meta, false); err != nil {
 			return err
 		}
 	}
@@ -268,7 +287,7 @@ func (s *Server) BootstrapAddNode(ctx context.Context, addr string) error {
 	if err != nil {
 		return err
 	}
-	return s.AddNode(*meta)
+	return s.AddNode(*meta, true)
 }
 
 type peer struct {

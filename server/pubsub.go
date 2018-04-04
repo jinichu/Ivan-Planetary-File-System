@@ -102,12 +102,10 @@ func (s *Server) Subscribe(req *serverpb.SubscribeRequest, stream serverpb.Node_
 func (s *Server) Publish(ctx context.Context, req *serverpb.PublishRequest) (*serverpb.PublishResponse, error) {
 	privKey, err := LoadPrivate(req.GetPrivKey())
 	if err != nil {
-		fmt.Println(err)
 		return nil, err
 	}
 	pubKey, err := MarshalPublic(&privKey.PublicKey)
 	if err != nil {
-		fmt.Println(err)
 		return nil, err
 	}
 	// Create reference
@@ -118,17 +116,14 @@ func (s *Server) Publish(ctx context.Context, req *serverpb.PublishRequest) (*se
 	}
 	bytes, err := msg.Marshal()
 	if err != nil {
-		fmt.Println(err)
 		return nil, err
 	}
 	r, s1, err := Sign(bytes, *privKey)
 	if err != nil {
-		fmt.Println(err)
 		return nil, err
 	}
 	sig, err := asn1.Marshal(EcdsaSignature{R: r, S: s1})
 	if err != nil {
-		fmt.Println(err)
 		return nil, err
 	}
 	msg.Signature = base64.URLEncoding.EncodeToString(sig)

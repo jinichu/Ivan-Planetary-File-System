@@ -42,17 +42,29 @@ func TestCluster(t *testing.T) {
 
 func TestClusterMaxPeers(t *testing.T) {
 	const nodes = 5
+	const maxPeers = 2
 	ts := NewTestCluster(t, nodes, func(c *cluster) {
-		c.NodeConfig.MaxPeers = 3
+		c.NodeConfig.MaxPeers = maxPeers
 	})
 	defer ts.Close()
 
-	for i, node := range ts.Nodes {
+	// First node will have n peers since star topology.
+	util.SucceedsSoon(t, func() error {
+		got := ts.Nodes[0].NumConnections()
+		want := nodes - 1
+		if got != want {
+			return errors.Errorf("0. expected %d connections; got %d", want, got)
+		}
+		return nil
+	})
+
+	// Later nodes should be capped at 2 peers.
+	for i, node := range ts.Nodes[1:] {
 		util.SucceedsSoon(t, func() error {
 			got := node.NumConnections()
-			want := 3
-			if got != want {
-				return errors.Errorf("%d. expected %d connections; got %d", i, want, got)
+			want := maxPeers
+			if got < want {
+				return errors.Errorf("%d. expected >= %d connections; got %d", i, want, got)
 			}
 			return nil
 		})
@@ -86,57 +98,58 @@ func TestBootstrapAddNode(t *testing.T) {
 
 func TestClusterFetchDocument(t *testing.T) {
 	const nodes = 5
-	ts := NewTestCluster(t, nodes)
-	defer ts.Close()
 
-	ctx := context.Background()
+	MultiTopologyTest(t, DefaultTopologies, nodes, func(t *testing.T, ts *cluster) {
 
-	files := map[string]serverpb.Document{}
+		ctx := context.Background()
 
-	for i, node := range ts.Nodes {
-		doc := serverpb.Document{
-			Data:        []byte(fmt.Sprintf("Document from node %d", i)),
-			ContentType: "text/plain",
-		}
-		resp, err := node.Add(ctx, &serverpb.AddRequest{
-			Document: &doc,
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		files[resp.AccessId] = doc
+		files := map[string]serverpb.Document{}
 
-		// Make sure local node has the file.
-		{
-			resp, err := node.Get(ctx, &serverpb.GetRequest{
-				AccessId: resp.AccessId,
+		for i, node := range ts.Nodes {
+			doc := serverpb.Document{
+				Data:        []byte(fmt.Sprintf("Document from node %d", i)),
+				ContentType: "text/plain",
+			}
+			resp, err := node.Add(ctx, &serverpb.AddRequest{
+				Document: &doc,
 			})
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !reflect.DeepEqual(resp.Document, &doc) {
-				t.Fatalf("%d. got %+v; wanted %+v", i, resp.Document, &doc)
-			}
-		}
-	}
+			files[resp.AccessId] = doc
 
-	// Check to make sure all nodes can access other nodes files.
-	for i, node := range ts.Nodes {
-		for accessID, doc := range files {
-			util.SucceedsSoon(t, func() error {
+			// Make sure local node has the file.
+			{
 				resp, err := node.Get(ctx, &serverpb.GetRequest{
-					AccessId: accessID,
+					AccessId: resp.AccessId,
 				})
 				if err != nil {
-					return errors.Wrapf(err, "fetching document %q, from node %d: %s", accessID, i, doc.Data)
+					t.Fatal(err)
 				}
 				if !reflect.DeepEqual(resp.Document, &doc) {
-					return errors.Errorf("%d. got %+v; wanted %+v", i, resp.Document, &doc)
+					t.Fatalf("%d. got %+v; wanted %+v", i, resp.Document, &doc)
 				}
-				return nil
-			})
+			}
 		}
-	}
+
+		// Check to make sure all nodes can access other nodes files.
+		for i, node := range ts.Nodes {
+			for accessID, doc := range files {
+				util.SucceedsSoon(t, func() error {
+					resp, err := node.Get(ctx, &serverpb.GetRequest{
+						AccessId: accessID,
+					})
+					if err != nil {
+						return errors.Wrapf(err, "fetching document %q, from node %d: %s", accessID, i, doc.Data)
+					}
+					if !reflect.DeepEqual(resp.Document, &doc) {
+						return errors.Errorf("%d. got %+v; wanted %+v", i, resp.Document, &doc)
+					}
+					return nil
+				})
+			}
+		}
+	})
 }
 
 func generatePrivateKey(t *testing.T) []byte {
