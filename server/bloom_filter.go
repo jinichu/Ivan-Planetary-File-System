@@ -111,7 +111,7 @@ func (s *Server) ReceiveNewRoutingTable() {
 	for {
 		select {
 		case <-ticker.C:
-		case <-s.stopper.ShouldStop():
+		case <-s.ctx.Done():
 			return
 		}
 
@@ -129,7 +129,7 @@ func (s *Server) ReceiveNewRoutingTable() {
 		s.log.Printf("fetching routing tables... have %d", tableCount)
 
 		for id, peer := range peers {
-			ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
+			ctx, _ := context.WithTimeout(s.ctx, 10*time.Second)
 
 			if err := s.receiveTableOfPeer(ctx, id, peer); err != nil {
 				s.log.Printf("get routing table error: %s: %+v", color.RedString(id), err)

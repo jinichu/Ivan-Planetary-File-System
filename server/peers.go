@@ -142,7 +142,7 @@ func (s *Server) AddNode(meta serverpb.NodeMeta) error {
 		return nil
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(s.ctx)
 	conn, err := s.connectNode(ctx, meta)
 	if err != nil {
 		return err
@@ -230,14 +230,17 @@ func (s *Server) LocalConn() (*grpc.ClientConn, error) {
 	if err != nil {
 		return nil, err
 	}
-	ctx := context.Background()
-	return s.connectNode(ctx, meta)
+	return s.connectNode(s.ctx, meta)
 }
 
 // BootstrapAddNode adds a node by using an address to do an insecure connection
 // to a node, fetch node metadata and then reconnect via an encrypted
 // connection.
-func (s *Server) BootstrapAddNode(addr string) error {
+func (s *Server) BootstrapAddNode(ctx context.Context, addr string) error {
+	if ctx == nil {
+		ctx = s.ctx
+	}
+
 	if err := validateAddr(addr); err != nil {
 		return err
 	}
@@ -246,7 +249,6 @@ func (s *Server) BootstrapAddNode(addr string) error {
 		Rand:               rand.Reader,
 		InsecureSkipVerify: true,
 	})
-	ctx := context.TODO()
 	ctxDial, _ := context.WithTimeout(ctx, dialTimeout)
 	conn, err := grpc.DialContext(ctxDial, addr,
 		grpc.WithTransportCredentials(creds),
@@ -281,11 +283,16 @@ type peer struct {
 }
 
 func (p *peer) Close() {
-	p.cancel()
-
 	p.s.mu.Lock()
+	defer p.s.mu.Unlock()
+
+	p.closeLocked()
+}
+
+func (p *peer) closeLocked() {
 	delete(p.s.mu.peers, p.meta.Id)
-	p.s.mu.Unlock()
+
+	p.cancel()
 
 	if err := p.conn.Close(); err != nil {
 		p.s.log.Printf("failed to close connection: %s: %+v", color.RedString(p.meta.Id), err)
@@ -297,8 +304,6 @@ func (p *peer) heartbeat() {
 	for {
 		select {
 		case <-ticker.C:
-		case <-p.s.stopper.ShouldStop():
-			return
 		case <-p.ctx.Done():
 			return
 		}
