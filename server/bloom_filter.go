@@ -240,18 +240,36 @@ func mergeReceived(rt0 *serverpb.RoutingTable, rt1 *serverpb.RoutingTable) (*ser
 		withDupes[i] = rt0.Filters[i]
 	}
 
-	deduped := deleteDuplicates(withDupes)
+	deduped, err := deleteDuplicates(withDupes)
+	if err != nil {
+		return nil, err
+	}
 
 	return &serverpb.RoutingTable{Filters: deduped}, nil
 }
 
-func deleteDuplicates(filters []*serverpb.BloomFilter) []*serverpb.BloomFilter {
+func deleteDuplicates(filters []*serverpb.BloomFilter) ([]*serverpb.BloomFilter, error) {
 	seen := make(map[string]bool)
 	deduped := make([]*serverpb.BloomFilter, len(filters))
 	firstDuplicate := -1
+	lastNonEmpty := 0
+
+	emptyFilter := createNewBloomFilter()
+
 	for i, filter := range filters {
+		var f bloom.BloomFilter
+		if len(filter.Data) > 0 {
+			if err := f.GobDecode(filter.Data); err != nil {
+				return nil, err
+			}
+		}
+		empty := len(filter.Data) == 0 || f.Equal(emptyFilter)
+		if !empty {
+			lastNonEmpty = i
+		}
+
 		key := string(filter.Data)
-		if seen[key] {
+		if !empty && seen[key] {
 			if firstDuplicate <= 0 {
 				firstDuplicate = i
 			}
@@ -265,7 +283,11 @@ func deleteDuplicates(filters []*serverpb.BloomFilter) []*serverpb.BloomFilter {
 		firstDuplicate = len(deduped)
 	}
 
-	return deduped[:firstDuplicate]
+	if lastNonEmpty < firstDuplicate {
+		firstDuplicate = lastNonEmpty + 1
+	}
+
+	return deduped[:firstDuplicate], nil
 }
 
 func mergeFilters(bf0 *serverpb.BloomFilter, bf1 *serverpb.BloomFilter) (*serverpb.BloomFilter, error) {
