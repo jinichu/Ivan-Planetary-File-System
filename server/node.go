@@ -38,23 +38,35 @@ func (s *Server) GetRemoteFile(ctx context.Context, req *serverpb.GetRemoteFileR
 		if len(routes) == 0 {
 			return nil, errors.Errorf("no routes to document: %s", documentID)
 		}
+		var err error
 		for _, route := range routes {
+			if err != nil {
+				s.log.Printf("GetRemoteFile intermediate error: %+v", err)
+				err = nil
+			}
+
 			numHops := req.GetNumHops()
 			if numHops == -1 {
 				numHops = route.NumHops
 			}
-			resp, err := route.Client.GetRemoteFile(ctx, &serverpb.GetRemoteFileRequest{
+			var resp *serverpb.GetRemoteFileResponse
+			resp, err = route.Client.GetRemoteFile(ctx, &serverpb.GetRemoteFileRequest{
 				DocumentId: documentID,
 				NumHops:    numHops,
 			})
 			if err != nil {
-				s.log.Printf("failed to find file: %+v", err)
+				continue
+			}
+
+			hash := HashBytes(resp.Body)
+			if hash != documentID {
+				err = errors.Errorf("document hash didn't match requested ID")
 				continue
 			}
 
 			return resp, nil
 		}
-		return nil, errors.Errorf("failed to find document: %s", documentID)
+		return nil, errors.Wrapf(err, "failed to find document: %s", documentID)
 	} else if err != nil {
 		return nil, err
 	}

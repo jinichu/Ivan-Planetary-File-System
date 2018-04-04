@@ -130,9 +130,9 @@ message AddReferenceResponse {
 
 service Client {
   rpc Get(GetRequest) returns (GetResponse) {
-		option (google.api.http) = {
-			get: "/v1/document/{access_id}"
-		};
+    option (google.api.http) = {
+      get: "/v1/document/{access_id}"
+    };
   }
   rpc Add(AddRequest) returns (AddResponse) {
     option (google.api.http) = {

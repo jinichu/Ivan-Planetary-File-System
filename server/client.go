@@ -5,7 +5,6 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
-	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/asn1"
 	"encoding/base64"
@@ -58,8 +57,7 @@ func (s *Server) Add(ctx context.Context, in *serverpb.AddRequest) (*serverpb.Ad
 		return nil, err
 	}
 
-	data := sha1.Sum(encryptedDocument)
-	hash := base64.URLEncoding.EncodeToString(data[:])
+	hash := HashBytes(encryptedDocument)
 
 	if err := s.db.Update(func(txn *badger.Txn) error {
 		return txn.Set([]byte(fmt.Sprintf("/document/%s", hash)), encryptedDocument)

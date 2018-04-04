@@ -281,3 +281,8 @@ func Hash(a interface{}) (string, error) {
 	}
 	return base64.URLEncoding.EncodeToString(h.Sum(nil)), nil
 }
+
+func HashBytes(a []byte) string {
+	hash := sha1.Sum(a)
+	return base64.URLEncoding.EncodeToString(hash[:])
+}
