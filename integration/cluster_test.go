@@ -42,17 +42,29 @@ func TestCluster(t *testing.T) {
 
 func TestClusterMaxPeers(t *testing.T) {
 	const nodes = 5
-	ts := NewTestCluster(t, nodes, func(c *serverpb.NodeConfig) {
-		c.MaxPeers = 3
+	const maxPeers = 2
+	ts := NewTestCluster(t, nodes, func(c *cluster) {
+		c.NodeConfig.MaxPeers = maxPeers
 	})
 	defer ts.Close()
 
-	for i, node := range ts.Nodes {
+	// First node will have n peers since star topology.
+	util.SucceedsSoon(t, func() error {
+		got := ts.Nodes[0].NumConnections()
+		want := nodes - 1
+		if got != want {
+			return errors.Errorf("0. expected %d connections; got %d", want, got)
+		}
+		return nil
+	})
+
+	// Later nodes should be capped at 2 peers.
+	for i, node := range ts.Nodes[1:] {
 		util.SucceedsSoon(t, func() error {
 			got := node.NumConnections()
-			want := 3
-			if got != want {
-				return errors.Errorf("%d. expected %d connections; got %d", i, want, got)
+			want := maxPeers
+			if got < want {
+				return errors.Errorf("%d. expected >= %d connections; got %d", i, want, got)
 			}
 			return nil
 		})
@@ -63,7 +75,7 @@ func TestBootstrapAddNode(t *testing.T) {
 	ts := NewTestCluster(t, 1)
 	defer ts.Close()
 
-	s := ts.AddNode()
+	s := ts.AddNode(ts.NodeConfig)
 	meta, err := ts.Nodes[0].NodeMeta()
 	if err != nil {
 		t.Fatal(err)
@@ -86,57 +98,57 @@ func TestBootstrapAddNode(t *testing.T) {
 
 func TestClusterFetchDocument(t *testing.T) {
 	const nodes = 5
-	ts := NewTestCluster(t, nodes)
-	defer ts.Close()
 
-	ctx := context.Background()
+	MultiTopologyTest(t, DefaultTopologies, nodes, func(t *testing.T, ts *cluster) {
+		ctx := context.Background()
 
-	files := map[string]serverpb.Document{}
+		files := map[string]serverpb.Document{}
 
-	for i, node := range ts.Nodes {
-		doc := serverpb.Document{
-			Data:        []byte(fmt.Sprintf("Document from node %d", i)),
-			ContentType: "text/plain",
-		}
-		resp, err := node.Add(ctx, &serverpb.AddRequest{
-			Document: &doc,
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		files[resp.AccessId] = doc
-
-		// Make sure local node has the file.
-		{
-			resp, err := node.Get(ctx, &serverpb.GetRequest{
-				AccessId: resp.AccessId,
+		for i, node := range ts.Nodes {
+			doc := serverpb.Document{
+				Data:        []byte(fmt.Sprintf("Document from node %d", i)),
+				ContentType: "text/plain",
+			}
+			resp, err := node.Add(ctx, &serverpb.AddRequest{
+				Document: &doc,
 			})
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !reflect.DeepEqual(resp.Document, &doc) {
-				t.Fatalf("%d. got %+v; wanted %+v", i, resp.Document, &doc)
-			}
-		}
-	}
+			files[resp.AccessId] = doc
 
-	// Check to make sure all nodes can access other nodes files.
-	for i, node := range ts.Nodes {
-		for accessID, doc := range files {
-			util.SucceedsSoon(t, func() error {
+			// Make sure local node has the file.
+			{
 				resp, err := node.Get(ctx, &serverpb.GetRequest{
-					AccessId: accessID,
+					AccessId: resp.AccessId,
 				})
 				if err != nil {
-					return errors.Wrapf(err, "fetching document %q, from node %d: %s", accessID, i, doc.Data)
+					t.Fatal(err)
 				}
 				if !reflect.DeepEqual(resp.Document, &doc) {
-					return errors.Errorf("%d. got %+v; wanted %+v", i, resp.Document, &doc)
+					t.Fatalf("%d. got %+v; wanted %+v", i, resp.Document, &doc)
 				}
-				return nil
-			})
+			}
 		}
-	}
+
+		// Check to make sure all nodes can access other nodes files.
+		for i, node := range ts.Nodes {
+			for accessID, doc := range files {
+				util.SucceedsSoon(t, func() error {
+					resp, err := node.Get(ctx, &serverpb.GetRequest{
+						AccessId: accessID,
+					})
+					if err != nil {
+						return errors.Wrapf(err, "fetching document %q, from node %d: %s", accessID, i, doc.Data)
+					}
+					if !reflect.DeepEqual(resp.Document, &doc) {
+						return errors.Errorf("%d. got %+v; wanted %+v", i, resp.Document, &doc)
+					}
+					return nil
+				})
+			}
+		}
+	})
 }
 
 func generatePrivateKey(t *testing.T) []byte {
@@ -150,16 +162,73 @@ func generatePrivateKey(t *testing.T) []byte {
 
 func TestClusterFetchReference(t *testing.T) {
 	const nodes = 5
-	ts := NewTestCluster(t, nodes)
-	defer ts.Close()
 
-	ctx := context.Background()
+	MultiTopologyTest(t, DefaultTopologies, nodes, func(t *testing.T, ts *cluster) {
+		ctx := context.Background()
 
-	files := map[string]string{}
+		files := map[string]string{}
 
-	for i, node := range ts.Nodes {
+		for i, node := range ts.Nodes {
+			key := generatePrivateKey(t)
+			data := fmt.Sprintf("Reference from node %d", i)
+			resp, err := node.AddReference(ctx, &serverpb.AddReferenceRequest{
+				PrivKey: key,
+				Record:  data,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			files[resp.ReferenceId] = data
+
+			// Make sure local node has the file.
+			{
+				resp, err := node.GetReference(ctx, &serverpb.GetReferenceRequest{
+					ReferenceId: resp.ReferenceId,
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if resp.Reference.Value != data {
+					t.Fatalf("%d. got %+v; wanted %+v", i, resp.Reference.Value, data)
+				}
+			}
+		}
+
+		if len(files) != nodes {
+			t.Fatal("num files nodes mismatch")
+		}
+
+		// Check to make sure all nodes can access other nodes references.
+		for i, node := range ts.Nodes {
+			for referenceID, doc := range files {
+				util.SucceedsSoon(t, func() error {
+					resp, err := node.GetReference(ctx, &serverpb.GetReferenceRequest{
+						ReferenceId: referenceID,
+					})
+					if err != nil {
+						return errors.Wrapf(err, "fetching reference %q, from node %d: %s", referenceID, i, doc)
+					}
+					if resp.Reference.Value != doc {
+						return errors.Errorf("%d. got %+v; wanted %+v", i, resp, doc)
+					}
+					return nil
+				})
+			}
+		}
+	})
+}
+
+func TestClusterPubSub(t *testing.T) {
+	const nodes = 5
+	MultiTopologyTest(t, DefaultTopologies, nodes, func(t *testing.T, ts *cluster) {
+		ctx := context.Background()
+
+		i := mrand.Intn(len(ts.Nodes))
+		t.Logf("node picked to publish: %d", i)
+		node := ts.Nodes[i]
+
 		key := generatePrivateKey(t)
-		data := fmt.Sprintf("Reference from node %d", i)
+		data := fmt.Sprintf("Reference on node %d", i)
 		resp, err := node.AddReference(ctx, &serverpb.AddReferenceRequest{
 			PrivKey: key,
 			Record:  data,
@@ -167,144 +236,96 @@ func TestClusterFetchReference(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		files[resp.ReferenceId] = data
 
-		// Make sure local node has the file.
-		{
-			resp, err := node.GetReference(ctx, &serverpb.GetReferenceRequest{
-				ReferenceId: resp.ReferenceId,
-			})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if resp.Reference.Value != data {
-				t.Fatalf("%d. got %+v; wanted %+v", i, resp.Reference.Value, data)
-			}
+		accessID := resp.ReferenceId
+
+		var mu struct {
+			sync.Mutex
+
+			seen map[int]*serverpb.Message
 		}
-	}
+		mu.seen = map[int]*serverpb.Message{}
 
-	// Check to make sure all nodes can access other nodes references.
-	for i, node := range ts.Nodes {
-		for referenceID, doc := range files {
+		// Check to make sure all nodes can access other nodes references.
+		for i, node := range ts.Nodes {
 			util.SucceedsSoon(t, func() error {
-				resp, err := node.GetReference(ctx, &serverpb.GetReferenceRequest{
-					ReferenceId: referenceID,
-				})
-				if err != nil {
-					return errors.Wrapf(err, "fetching reference %q, from node %d: %s", referenceID, i, doc)
-				}
-				if resp.Reference.Value != doc {
-					return errors.Errorf("%d. got %+v; wanted %+v", i, resp, doc)
+				if _, err := node.GetReference(ctx, &serverpb.GetReferenceRequest{
+					ReferenceId: accessID,
+				}); err != nil {
+					return errors.Wrapf(err, "node %d", i)
 				}
 				return nil
 			})
-		}
-	}
-}
 
-func TestClusterPubSub(t *testing.T) {
-	const nodes = 5
-	ts := NewTestCluster(t, nodes)
-	defer ts.Close()
+			conn, err := node.LocalConn()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer conn.Close()
 
-	ctx := context.Background()
-
-	i := mrand.Intn(len(ts.Nodes))
-	t.Logf("node picked to publish: %d", i)
-	node := ts.Nodes[i]
-
-	key := generatePrivateKey(t)
-	data := fmt.Sprintf("Reference on node %d", i)
-	resp, err := node.AddReference(ctx, &serverpb.AddReferenceRequest{
-		PrivKey: key,
-		Record:  data,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	referenceID := resp.ReferenceId
-
-	var mu struct {
-		sync.Mutex
-
-		seen map[int]*serverpb.Message
-	}
-	mu.seen = map[int]*serverpb.Message{}
-
-	// Check to make sure all nodes can access other nodes references.
-	for i, node := range ts.Nodes {
-		util.SucceedsSoon(t, func() error {
-			_, err := node.GetReference(ctx, &serverpb.GetReferenceRequest{
-				ReferenceId: referenceID,
+			client := serverpb.NewClientClient(conn)
+			stream, err := client.SubscribeClient(ctx, &serverpb.SubscribeRequest{
+				ChannelId: accessID,
 			})
-			return err
-		})
-
-		conn, err := node.LocalConn()
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer conn.Close()
-
-		client := serverpb.NewClientClient(conn)
-		stream, err := client.SubscribeClient(ctx, &serverpb.SubscribeRequest{
-			ChannelId: referenceID,
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		i := i
-
-		go func() {
-			msg, err := stream.Recv()
 			if err != nil {
 				t.Fatal(err)
 			}
 
-			mu.Lock()
-			defer mu.Unlock()
+			i := i
 
-			mu.seen[i] = msg
-		}()
-	}
+			go func() {
+				msg, err := stream.Recv()
+				if err != nil {
+					t.Fatal(err)
+				}
 
-	util.SucceedsSoon(t, func() error {
-		n := node.NumListeners(referenceID)
-		if n != len(ts.Nodes) {
-			return errors.Errorf("NumListeners() = %d; not %d", n, len(ts.Nodes))
+				mu.Lock()
+				defer mu.Unlock()
+
+				mu.seen[i] = msg
+			}()
 		}
-		return nil
-	})
 
-	msg := "some message woo"
-	{
-		resp, err := node.Publish(ctx, &serverpb.PublishRequest{
-			PrivKey: key,
-			Message: msg,
-		})
+		referenceID, _, err := server.SplitAccessID(accessID)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if resp.Listeners != int32(len(ts.Nodes)) {
-			t.Fatalf("Publish sent to %d listeners; not %d", resp.Listeners, len(ts.Nodes))
-		}
-	}
+		util.SucceedsSoon(t, func() error {
+			n := node.NumListeners(referenceID)
+			if n != len(ts.Nodes) {
+				return errors.Errorf("NumListeners() = %d; not %d", n, len(ts.Nodes))
+			}
+			return nil
+		})
 
-	util.SucceedsSoon(t, func() error {
-		mu.Lock()
-		defer mu.Unlock()
-
-		if len(mu.seen) != len(ts.Nodes) {
-			return errors.Errorf("len seen != len Nodes; %#v", mu.seen)
-		}
-
-		for i, got := range mu.seen {
-			if got.Message != msg {
-				return errors.Errorf("%d. message = %+v; want %q", i, got, msg)
+		msg := "some message woo"
+		{
+			resp, err := node.Publish(ctx, &serverpb.PublishRequest{
+				PrivKey: key,
+				Message: msg,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if resp.Listeners != int32(len(ts.Nodes)) {
+				t.Fatalf("Publish sent to %d listeners; not %d", resp.Listeners, len(ts.Nodes))
 			}
 		}
-		return nil
+
+		util.SucceedsSoon(t, func() error {
+			mu.Lock()
+			defer mu.Unlock()
+
+			if len(mu.seen) != len(ts.Nodes) {
+				return errors.Errorf("len seen != len Nodes; %#v", mu.seen)
+			}
+
+			for i, got := range mu.seen {
+				if got.Message != msg {
+					return errors.Errorf("%d. message = %+v; want %q", i, got, msg)
+				}
+			}
+			return nil
+		})
 	})
 }

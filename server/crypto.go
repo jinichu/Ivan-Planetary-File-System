@@ -1,25 +1,30 @@
 package server
 
 import (
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha1"
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/asn1"
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
-	"errors"
 	"fmt"
+	"io"
 	"log"
 	"math/big"
 	"os"
 	"time"
 
 	"github.com/dgraph-io/badger"
+	"github.com/pkg/errors"
 )
 
 const (
@@ -280,4 +285,85 @@ func Hash(a interface{}) (string, error) {
 		return "", nil
 	}
 	return base64.URLEncoding.EncodeToString(h.Sum(nil)), nil
+}
+
+func HashBytes(a []byte) string {
+	hash := sha1.Sum(a)
+	return base64.URLEncoding.EncodeToString(hash[:])
+}
+
+func EncryptBytes(key, body []byte) ([]byte, error) {
+	// Create a new AESBlockCipher
+	aesBlock, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, err
+	}
+
+	ciphertext := make([]byte, aes.BlockSize+len(body))
+	iv := ciphertext[:aes.BlockSize]
+	if _, err := io.ReadFull(rand.Reader, iv); err != nil {
+		return nil, err
+	}
+
+	stream := cipher.NewCFBEncrypter(aesBlock, iv)
+	stream.XORKeyStream(ciphertext[aes.BlockSize:], body)
+
+	return ciphertext, nil
+}
+
+func GenerateAESKey() ([]byte, error) {
+	key := make([]byte, 32)
+	if _, err := io.ReadFull(rand.Reader, key); err != nil {
+		return nil, err
+	}
+	return key, nil
+}
+
+type DevZero int
+
+func (z DevZero) Read(b []byte) (n int, err error) {
+	for i := range b {
+		b[i] = 0
+	}
+
+	return len(b), nil
+}
+
+func GenerateAESKeyFromECDSA(key *ecdsa.PrivateKey) ([]byte, error) {
+	body := []byte(`yes this is some body yes wow very body`)
+	r, s, err := ecdsa.Sign(DevZero(0), key, body)
+	if err != nil {
+		return nil, err
+	}
+	sig, err := asn1.Marshal(EcdsaSignature{R: r, S: s})
+	if err != nil {
+		return nil, err
+	}
+	h := sha256.New()
+	if _, err := h.Write(body); err != nil {
+		return nil, err
+	}
+	if _, err := h.Write(sig); err != nil {
+		return nil, err
+	}
+	return h.Sum(nil), nil
+}
+
+func DecryptBytes(key, body []byte) ([]byte, error) {
+	aesBlock, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, err
+	}
+	if len(body) < aes.BlockSize {
+		return nil, errors.Errorf("ciphertext too short")
+	}
+
+	iv := body[:aes.BlockSize]
+	body = body[aes.BlockSize:]
+
+	stream := cipher.NewCFBDecrypter(aesBlock, iv)
+	plainText := make([]byte, len(body))
+	stream.XORKeyStream(plainText, body)
+
+	return plainText, nil
 }

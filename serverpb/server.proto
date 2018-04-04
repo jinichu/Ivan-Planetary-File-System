@@ -38,7 +38,7 @@ message GetRemoteReferenceRequest {
 }
 
 message GetRemoteReferenceResponse {
-  bytes reference = 1;
+  Reference reference = 1;
 }
 
 message SubscribeRequest {
@@ -135,9 +135,9 @@ message AddReferenceResponse {
 
 service Client {
   rpc Get(GetRequest) returns (GetResponse) {
-		option (google.api.http) = {
-			get: "/v1/document/{access_id}"
-		};
+    option (google.api.http) = {
+      get: "/v1/document/{access_id}"
+    };
   }
   rpc Add(AddRequest) returns (AddResponse) {
     option (google.api.http) = {
@@ -147,9 +147,9 @@ service Client {
   }
   rpc AddDirectory(AddDirectoryRequest) returns (AddDirectoryResponse) {}
   rpc GetPeers(GetPeersRequest) returns (GetPeersResponse) {
-		option (google.api.http) = {
-			get: "/v1/peers"
-		};
+    option (google.api.http) = {
+      get: "/v1/peers"
+    };
   }
   rpc AddPeer(AddPeerRequest) returns (AddPeerResponse) {
     option (google.api.http) = {

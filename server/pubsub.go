@@ -102,33 +102,36 @@ func (s *Server) Subscribe(req *serverpb.SubscribeRequest, stream serverpb.Node_
 func (s *Server) Publish(ctx context.Context, req *serverpb.PublishRequest) (*serverpb.PublishResponse, error) {
 	privKey, err := LoadPrivate(req.GetPrivKey())
 	if err != nil {
-		fmt.Println(err)
 		return nil, err
 	}
 	pubKey, err := MarshalPublic(&privKey.PublicKey)
 	if err != nil {
-		fmt.Println(err)
+		return nil, err
+	}
+	key, err := GenerateAESKeyFromECDSA(privKey)
+	if err != nil {
+		return nil, err
+	}
+	encryptedValue, err := EncryptBytes(key, []byte(req.GetMessage()))
+	if err != nil {
 		return nil, err
 	}
 	// Create reference
 	msg := &serverpb.Message{
-		Message:   req.GetMessage(),
+		Message:   string(encryptedValue),
 		PublicKey: pubKey,
 		Timestamp: time.Now().Unix(),
 	}
 	bytes, err := msg.Marshal()
 	if err != nil {
-		fmt.Println(err)
 		return nil, err
 	}
 	r, s1, err := Sign(bytes, *privKey)
 	if err != nil {
-		fmt.Println(err)
 		return nil, err
 	}
 	sig, err := asn1.Marshal(EcdsaSignature{R: r, S: s1})
 	if err != nil {
-		fmt.Println(err)
 		return nil, err
 	}
 	msg.Signature = base64.URLEncoding.EncodeToString(sig)
@@ -164,8 +167,40 @@ func (s *Server) Publish(ctx context.Context, req *serverpb.PublishRequest) (*se
 }
 
 func (s *Server) SubscribeClient(req *serverpb.SubscribeRequest, stream serverpb.Client_SubscribeClientServer) error {
+	// Trim the encryption key off the end of the channel ID.
+	channelId, accessKey, err := SplitAccessID(req.ChannelId)
+	if err != nil {
+		return err
+	}
+	req.ChannelId = channelId
 	req.NumHops = -1
-	return s.Subscribe(req, stream)
+	conn, err := s.LocalConn()
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	cstream, err := serverpb.NewNodeClient(conn).Subscribe(stream.Context(), req)
+	if err != nil {
+		return err
+	}
+
+	for {
+		msg, err := cstream.Recv()
+		if err != nil {
+			return err
+		}
+
+		message, err := DecryptBytes(accessKey, []byte(msg.Message))
+		if err != nil {
+			return err
+		}
+		msg.Message = string(message)
+
+		if err := stream.Send(msg); err != nil {
+			return err
+		}
+	}
 }
 
 func (s *Server) NumListeners(referenceID string) int {

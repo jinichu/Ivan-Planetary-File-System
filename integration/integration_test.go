@@ -24,32 +24,30 @@ type cluster struct {
 	t     *testing.T
 	Nodes []*server.Server
 	Dirs  []string
+
+	serverpb.NodeConfig
+	Topology Topology
 }
 
-func NewTestCluster(t *testing.T, n int, opts ...func(*serverpb.NodeConfig)) *cluster {
+func NewTestCluster(t *testing.T, n int, opts ...func(*cluster)) *cluster {
 	server.RoutingTableInterval = 200 * time.Millisecond
 
 	c := cluster{
 		t: t,
+		NodeConfig: serverpb.NodeConfig{
+			MaxPeers: 10,
+		},
+		Topology: TopologyLooselyConnected,
+	}
+
+	for _, f := range opts {
+		f(&c)
 	}
 	for i := 0; i < n; i++ {
-		c.AddNode(opts...)
+		c.AddNode(c.NodeConfig)
 	}
 
-	var meta serverpb.NodeMeta
-	var err error
-	util.SucceedsSoon(t, func() error {
-		meta, err = c.Nodes[0].NodeMeta()
-		if err != nil {
-			return err
-		}
-		if len(meta.Addrs) == 0 {
-			return errors.Errorf("no address")
-		}
-		return nil
-	})
-
-	for _, node := range c.Nodes[1:] {
+	for _, node := range c.Nodes {
 		util.SucceedsSoon(t, func() error {
 			meta, err := node.NodeMeta()
 			if err != nil {
@@ -60,26 +58,20 @@ func NewTestCluster(t *testing.T, n int, opts ...func(*serverpb.NodeConfig)) *cl
 			}
 			return nil
 		})
-		if err := node.AddNode(meta); err != nil {
-			t.Fatalf("%+v", err)
-		}
+
+		c.Topology(&c)
 	}
 
 	return &c
 }
 
-func (c *cluster) AddNode(opts ...func(*serverpb.NodeConfig)) *server.Server {
+func (c *cluster) AddNode(config serverpb.NodeConfig) *server.Server {
 	dir, err := ioutil.TempDir("", "ipfs-cluster-test")
 	if err != nil {
 		c.t.Fatalf("%+v", err)
 	}
-	config := serverpb.NodeConfig{
-		Path:     dir,
-		MaxPeers: 10,
-	}
-	for _, f := range opts {
-		f(&config)
-	}
+	config.Path = dir
+
 	s, err := server.New(config)
 	if err != nil {
 		c.t.Fatalf("%+v", err)
