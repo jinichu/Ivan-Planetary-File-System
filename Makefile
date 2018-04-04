@@ -1,5 +1,8 @@
+.PHONY: everything
+everything: test build
+
 .PHONY: build
-build: test proj2 app/ipfs
+build: proj2 app/ipfs
 
 .PHONY: test
 test: proto
@@ -21,5 +24,5 @@ deps:
 proto:
 	protoc -I$(GOPATH)/src -I . -I/usr/local/include -I$(GOPATH)/src/github.com/grpc-ecosystem/grpc-gateway/third_party/googleapis --gogoslick_out=plugins=grpc:. --grpc-gateway_out=logtostderr=true:. serverpb/server.proto
 
-app/ipfs: app/ipfs.go proj2
-	go build -v app/ipfs.go
+ipfs: app/ipfs.go proj2
+	go build -v app/ipfs.go -o ipfs
