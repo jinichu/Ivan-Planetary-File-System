@@ -4,6 +4,7 @@
 <link rel="import" href="https://cdn.rawgit.com/download/polymer-cdn/2.3.1/lib/polymer/polymer.html">
 <link rel="import" href="https://cdn.rawgit.com/download/polymer-cdn/2.3.1/lib/iron-localstorage/iron-localstorage.html">
 <link rel="import" href="https://cdn.rawgit.com/download/polymer-cdn/2.3.1/lib/paper-input/paper-input.html">
+<link rel="import" href="https://cdn.rawgit.com/download/polymer-cdn/2.3.1/lib/paper-input/paper-textarea.html">
 <link rel="import" href="https://cdn.rawgit.com/download/polymer-cdn/2.3.1/lib/paper-button/paper-button.html">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsrsasign/8.0.9/jsrsasign-all-min.js" integrity="sha256-PZhswUGskgJrQKp7oCrGOO6xTIkVZBgqD5zKXhsnE6c=" crossorigin="anonymous"></script>
 
@@ -139,7 +140,11 @@ function subscribe (id, cb) {
   <template>
     <style>
       :host {
-        margin: 0 16px;
+        display: block;
+        margin: 0 auto;
+        width: 900px;
+        max-width: 100%;
+        padding: 16px;
         font-family: 'IBM Plex Sans', 'Open Sans', 'Noto Sans', sans-serif;
       }
       pre {
@@ -158,15 +163,17 @@ function subscribe (id, cb) {
 
     <div class="controls">
       <paper-input label="Name" value="{{state.name}}"></paper-input>
+
       <paper-button on-tap="saveState" raised>Save</paper-button>
     </div>
 
+    <paper-textarea label="Tweet" value="{{body}}"></paper-textarea>
     <div class="controls">
-      <paper-input label="Tweet" value="{{body}}"></paper-input>
-      <paper-button on-tap="tweet" raised>Publish Spec</paper-button>
+      <paper-input type="file" id="file"></paper-input>
+      <paper-button on-tap="tweet" raised>🛰 Publish Spec</paper-button>
     </div>
 
-    <h2>Specs</h2>
+    <h2>💯 Specs</h2>
     <paper-input label="Viewing User" value="{{viewUser}}"></paper-input>
     <a target="_blank" href="/reference/[[viewUser]]">View Raw Data</a>
 
@@ -242,14 +249,36 @@ class MainApp extends Polymer.Element {
     if (!this.body) {
       return
     }
-    this.unshift('state.tweets', {
-      time: new Date().toISOString(),
-      body: this.body,
-      image: this.image
+    const files = this.$.file.inputElement.inputElement.files
+    let image = Promise.resolve()
+    if (files.length > 0) {
+      const file = files[0]
+      const reader = new FileReader()
+      image = new Promise((resolve, reject) => {
+        reader.onload = (file) => {
+          resolve(file)
+        }
+      }).then(() => {
+        return add({
+          data: btoa(reader.result),
+          contentType: file.type,
+        })
+      }).then((resp) => {
+        return '/document/' + resp.access_id
+      })
+      reader.readAsBinaryString(file)
+    }
+
+    image.then((image) => {
+      this.unshift('state.tweets', {
+        time: new Date().toISOString(),
+        body: this.body,
+        image: image
+      })
+      this.body = ''
+      this.$.file.value = ''
+      this.saveState()
     })
-    this.body = ''
-    this.image = ''
-    this.saveState()
   }
 }
 customElements.define(MainApp.is, MainApp)
