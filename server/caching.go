@@ -42,6 +42,8 @@ func (s *Server) LRUCache(remoteFile *serverpb.GetRemoteFileResponse, docID stri
 	if err != nil {
 		fmt.Printf("error in cache function")
 	}
+
+	return nil
 }
 
 func (s *Server) AddToCache(remoteFile *serverpb.GetRemoteFileResponse, docID string) error {
