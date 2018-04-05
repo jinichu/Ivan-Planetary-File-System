@@ -1,17 +1,13 @@
 package server
 
 import (
+	"bytes"
 	"fmt"
+	"time"
 
 	"proj2_f5w9a_h6v9a_q7w9a_r8u8_w1c0b/serverpb"
 
 	"github.com/dgraph-io/badger"
-	"time"
-)
-
-const (
-	MAX_BYTE_CAPACITY     = 100
-	CACHE_CANDIDATE_SIZE = 10
 )
 
 type CacheKV struct {
@@ -25,7 +21,15 @@ func (s *Server) LRUCache(remoteFile *serverpb.GetRemoteFileResponse, docID stri
 	// Store sizes -- delete items until cache under size, then GC ONCE.
 	lsm_size, vallog_size := s.db.Size()
 	db_size := lsm_size + vallog_size
-	for db_size > MAX_BYTE_CAPACITY {
+	for db_size > s.config.CacheSize {
+		// Check if cache empty before evicting.
+		numKeys, err := s.checkCacheNumKeys()
+		if err != nil {
+			return err
+		}
+		if numKeys == 0 {
+			return nil
+		}
 		//perform cache eviction
 		savings, err := s.cacheEvict()
 		if err != nil {
@@ -47,8 +51,6 @@ func (s *Server) LRUCache(remoteFile *serverpb.GetRemoteFileResponse, docID stri
 }
 
 func (s *Server) AddToCache(remoteFile *serverpb.GetRemoteFileResponse, docID string) error {
-	remoteFile.Marshal()
-
 	sizeOfItem := remoteFile.Size()
 	currTime := time.Now().UnixNano()
 
@@ -64,19 +66,21 @@ func (s *Server) AddToCache(remoteFile *serverpb.GetRemoteFileResponse, docID st
 		return err
 	}
 
+	if err := s.db.Update(func(txn *badger.Txn) error {
+		return txn.Set([]byte(fmt.Sprintf("/document/%s", docID)), remoteFile.Body)
+	}); err != nil {
+		return err
+	}
+
 	return nil
 }
 
 // When the DB is too big, start deleting things from /cache/ . Key points to /documents
 func (s *Server) cacheEvict() (int64, error) {
-	// Iterate through keys, select 10 keys.
-	// Key only iteration for now.
-	// Check the number of keys in the local db.
 
 	candidates := []CacheKV{}
-	var numKeys = 0
 	// Iterate over cache key prefix
-	s.db.View(func(txn *badger.Txn) error {
+	if err := s.db.View(func(txn *badger.Txn) error {
 		it := txn.NewIterator(badger.DefaultIteratorOptions)
 		defer it.Close()
 
@@ -84,14 +88,12 @@ func (s *Server) cacheEvict() (int64, error) {
 		if err != nil {
 			return err
 		}
-
 		// call iterator once, then call next 10 times
 		prefix := []byte("/cache/")
 		start := []byte(fmt.Sprintf("%s%s", prefix, randKey))
 
 		it.Seek(start)
-
-		for i := 0; i < CACHE_CANDIDATE_SIZE; i++ {
+		for i := 0; i < int(s.config.CacheSample); i++ {
 			it.Next()
 			if !it.ValidForPrefix(prefix) {
 				break
@@ -104,10 +106,12 @@ func (s *Server) cacheEvict() (int64, error) {
 			}
 			var cacheItem serverpb.CacheMeta
 			cacheItem.Unmarshal(v)
-
 			candidates = append(candidates, CacheKV{k, cacheItem})
 		}
-	})
+		return nil
+	}); err != nil {
+		return 0, err
+	}
 
 	oldestItem := CacheKV{}
 	oldestTime := time.Now().UnixNano()
@@ -119,14 +123,52 @@ func (s *Server) cacheEvict() (int64, error) {
 		}
 	}
 
-	s.db.View(func(txn *badger.Txn) error {
+	if err := s.db.View(func(txn *badger.Txn) error {
 		err := txn.Delete(oldestItem.key)
 		if err != nil {
 			return err
 		}
-	})
+		return nil
+	}); err != nil {
+		return 0, err
+	}
+
+	docId := bytes.TrimPrefix(oldestItem.key, []byte("/cache/"))
+	prefix := []byte("/document/")
+
+	docKey := []byte(fmt.Sprintf("%s%s", prefix, docId))
+	if err := s.db.View(func(txn *badger.Txn) error {
+		err := txn.Delete(docKey)
+		if err != nil {
+			return err
+		}
+		return nil
+	}); err != nil {
+		return 0, err
+	}
 
 	return oldestItem.value.Sizeofdoc, nil
+}
 
+func (s *Server) checkCacheNumKeys() (int, error) {
+	numKeys := 0
+	if err := s.db.View(func(txn *badger.Txn) error {
+		it := txn.NewIterator(badger.DefaultIteratorOptions)
+		defer it.Close()
+		prefix := []byte("/cache/")
+		for it.Seek(prefix); it.ValidForPrefix(prefix); it.Next() {
+			item := it.Item()
+			k := item.Key()
+			v, err := item.Value()
+			if err != nil {
+				return err
+			}
+			numKeys += 1
+		}
+		return nil
+	}); err != nil {
+		return 0, err
 	}
+
+	return numKeys, nil
 }
