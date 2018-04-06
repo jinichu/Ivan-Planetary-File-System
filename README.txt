@@ -1,5 +1,7 @@
 Special instructions for compiling/running the code should be included in this file.
 
+Git clone or copy the project code into a folder in your $GOPATH/ directory.
+
 To run and install this code you'll need to install protoc (Google's Protocol
 Buffer compiler).
 
