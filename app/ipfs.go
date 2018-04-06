@@ -224,7 +224,7 @@ func reference(cmd []string, client serverpb.ClientClient, ctx context.Context) 
 	if len(cmd) < 3 {
 		fmt.Println("Incorrect number of arguments.")
 	} else if cmd[1] == "get" && len(cmd) != 3 {
-		fmt.Println("Please specify a reference ID.")
+		fmt.Println("Please specify a reference access ID.")
 	} else if cmd[1] == "get" && len(cmd) == 3 {
 		args := &serverpb.GetReferenceRequest{
 			ReferenceId: cmd[2],
