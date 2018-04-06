@@ -157,12 +157,6 @@ func (s *Server) checkCacheNumKeys() (int, error) {
 		defer it.Close()
 		prefix := []byte("/cache/")
 		for it.Seek(prefix); it.ValidForPrefix(prefix); it.Next() {
-			item := it.Item()
-			k := item.Key()
-			v, err := item.Value()
-			if err != nil {
-				return err
-			}
 			numKeys += 1
 		}
 		return nil
