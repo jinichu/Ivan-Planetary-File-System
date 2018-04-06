@@ -68,6 +68,11 @@ func (s *Server) GetRemoteFile(ctx context.Context, req *serverpb.GetRemoteFileR
 				continue
 			}
 
+			err = s.LRUCache(resp, documentID)
+			if err != nil {
+				return nil, errors.Wrap(err, "Error in the LRU cache function")
+			}
+
 			return resp, nil
 		}
 		return nil, errors.Wrapf(err, "failed to find document: %s", documentID)

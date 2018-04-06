@@ -3,3 +3,4 @@ proj2
 *.pb.gw.go
 tmp/
 ipfs
+.idea/**

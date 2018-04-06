@@ -16,6 +16,8 @@ message NodeConfig {
   string path = 1;
   int32 max_peers = 2;
   int32 max_width = 3;
+  int64 cache_size = 4;
+  int32 cache_sample = 5;
 }
 
 message HelloRequest {
@@ -69,6 +71,11 @@ message Document {
   bytes data = 1;
   string content_type = 2;
   map<string, string> children = 3;
+}
+
+message CacheMeta {
+  int64 sizeofdoc = 1;
+  int64 lastAccessed = 2;
 }
 
 message Reference {
