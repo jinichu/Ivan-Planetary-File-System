@@ -18,13 +18,44 @@ body {
 </style>
 
 <script>
-function get (doc) {
-  return fetch('/document/'+doc).then((resp) => resp.json())
+function sleep(a, time) {
+  return new Promise((resolve, reject) => {
+    setTimeout(() => {
+      resolve(a)
+    }, time)
+  })
 }
 
-function getReference (ref) {
+function get (doc, tries) {
+  if (!tries) {
+    tries = 0
+  }
+  const url = '/document/'+doc
+  return fetch(url).then((resp) => {
+    console.log('resp', resp)
+    return resp.json()
+  }).catch(() => {
+    console.log('catch')
+    if (tries > 5) {
+      throw 'tries exceeded'
+    }
+    return sleep(null, 2000).then(() => {
+      return get(doc, tries+1)
+    })
+  })
+}
+
+function getReference (ref, tries) {
+  if (!tries) {
+    tries = 0
+  }
   return fetch('/reference/'+ref).then((resp) => resp.json()).catch(() => {
-    return {}
+    if (tries > 5) {
+      throw 'tries exceeded'
+    }
+    return sleep(null, 2000).then(() => {
+      return getReference(ref, tries+1)
+    })
   })
 }
 
@@ -95,6 +126,7 @@ function subscribe (id, cb) {
       }
       .tweet img {
         margin-bottom: 1em;
+        max-width: 100%;
       }
     </style>
 
