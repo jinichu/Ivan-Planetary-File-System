@@ -56,6 +56,8 @@ type Server struct {
 		nextListenerID int
 
 		routingTable serverpb.RoutingTable
+
+		closed bool
 	}
 }
 
@@ -107,6 +109,11 @@ func New(c serverpb.NodeConfig) (*Server, error) {
 func (s *Server) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	if s.mu.closed {
+		return nil
+	}
+	s.mu.closed = true
 
 	err := errors.New("shutting down...")
 	s.log.Printf("%v", err)
@@ -202,6 +209,7 @@ func (s *Server) Listen(addr string) error {
 
 	mux := runtime.NewServeMux()
 	s.mux.Handle("/api/", http.StripPrefix("/api", mux))
+	s.mux.Handle("/source/", http.StripPrefix("/source/", http.FileServer(http.Dir("."))))
 
 	conn, err := s.LocalConn()
 	if err != nil {

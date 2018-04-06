@@ -329,3 +329,79 @@ func TestClusterPubSub(t *testing.T) {
 		})
 	})
 }
+
+func TestClusterFetchDocumentFailure(t *testing.T) {
+	const nodes = 5
+
+	MultiTopologyTest(t, DefaultTopologies, nodes, func(t *testing.T, ts *cluster) {
+		ctx := context.Background()
+
+		i := mrand.Intn(len(ts.Nodes))
+		t.Logf("node: %d", i)
+		node := ts.Nodes[i]
+
+		doc := serverpb.Document{
+			Data:        []byte(fmt.Sprintf("Document from node %d", i)),
+			ContentType: "text/plain",
+		}
+		resp, err := node.Add(ctx, &serverpb.AddRequest{
+			Document: &doc,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		accessID := resp.AccessId
+
+		// Make sure local node has the file.
+		{
+			_, err := node.Get(ctx, &serverpb.GetRequest{
+				AccessId: accessID,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		documentID, _, err := server.SplitAccessID(accessID)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Check to make sure all nodes can access the file.
+		for i, node := range ts.Nodes {
+			util.SucceedsSoon(t, func() error {
+				if _, err := node.CheckNumHopsToGetToFile(documentID); err != nil {
+					return err
+				}
+				_, err := node.Get(ctx, &serverpb.GetRequest{
+					AccessId: accessID,
+				})
+				if err != nil {
+					return errors.Wrapf(err, "fetching document %q, from node %d: %s", accessID, i, doc.Data)
+				}
+				return nil
+			})
+		}
+
+		// Kill the node
+		if err := node.Close(); err != nil {
+			t.Fatal(err)
+		}
+
+		// Check to make sure all nodes can access the file.
+		for j, node := range ts.Nodes {
+			if i == j {
+				continue
+			}
+
+			util.SucceedsSoon(t, func() error {
+				if hops, err := node.CheckNumHopsToGetToFile(documentID); err == nil {
+					return errors.Errorf("%d. expected error, got %d hops", j, hops)
+				}
+				return nil
+			})
+		}
+	}, func(c *cluster) {
+		c.MaxWidth = nodes
+	})
+}

@@ -36,6 +36,7 @@ func NewTestCluster(t *testing.T, n int, opts ...func(*cluster)) *cluster {
 		t: t,
 		NodeConfig: serverpb.NodeConfig{
 			MaxPeers: 10,
+			MaxWidth: int32(2 * n),
 		},
 		Topology: TopologyLooselyConnected,
 	}
