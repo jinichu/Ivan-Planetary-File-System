@@ -103,7 +103,24 @@ func (s *Server) addToRoutingTable(documentID string) error {
 
 // GetRoutingTable returns the local nodes routing table.
 func (s *Server) GetRoutingTable(ctx context.Context, previousRT *serverpb.RoutingTable) (*serverpb.RoutingTable, error) {
-	return s.getLocalRT(), nil
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	rt := s.mu.routingTable
+
+	for _, peer := range s.mu.peers {
+		if peer.routingTable == nil {
+			continue
+		}
+
+		merged, err := s.mergeReceived(&rt, peer.routingTable)
+		if err != nil {
+			return nil, err
+		}
+		rt = *merged
+	}
+
+	return &rt, nil
 }
 
 func (s *Server) ReceiveNewRoutingTable() {
@@ -154,19 +171,11 @@ func (s *Server) getLocalId() (string, error) {
 	return meta.Id, nil
 }
 
-func (s *Server) getLocalRT() *serverpb.RoutingTable {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	rt := s.mu.routingTable
-	return &rt
-}
-
-func (s *Server) checkNumHopsToGetToFile(documentID string) (int, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	rt := s.mu.routingTable
+func (s *Server) CheckNumHopsToGetToFile(documentID string) (int, error) {
+	rt, err := s.GetRoutingTable(context.Background(), nil)
+	if err != nil {
+		return 0, err
+	}
 
 	for i, bf := range rt.Filters {
 		if len(bf.Data) == 0 {
@@ -196,16 +205,11 @@ func (s *Server) receiveTableOfPeer(ctx context.Context, remoteID string, peer *
 	defer s.mu.Unlock()
 
 	peer.routingTable = remoteTable
-	merged, err := mergeReceived(&s.mu.routingTable, remoteTable)
-	if err != nil {
-		return err
-	}
-	s.mu.routingTable = *merged
 
 	return nil
 }
 
-func mergeReceived(rt0 *serverpb.RoutingTable, rt1 *serverpb.RoutingTable) (*serverpb.RoutingTable, error) {
+func (s *Server) mergeReceived(rt0 *serverpb.RoutingTable, rt1 *serverpb.RoutingTable) (*serverpb.RoutingTable, error) {
 	var size int
 	if len(rt0.Filters) > len(rt1.Filters) {
 		size = len(rt0.Filters) + 1
@@ -240,7 +244,7 @@ func mergeReceived(rt0 *serverpb.RoutingTable, rt1 *serverpb.RoutingTable) (*ser
 		withDupes[i] = rt0.Filters[i]
 	}
 
-	deduped, err := deleteDuplicates(withDupes)
+	deduped, err := deleteDuplicates(withDupes, int(s.config.MaxWidth))
 	if err != nil {
 		return nil, err
 	}
@@ -248,7 +252,7 @@ func mergeReceived(rt0 *serverpb.RoutingTable, rt1 *serverpb.RoutingTable) (*ser
 	return &serverpb.RoutingTable{Filters: deduped}, nil
 }
 
-func deleteDuplicates(filters []*serverpb.BloomFilter) ([]*serverpb.BloomFilter, error) {
+func deleteDuplicates(filters []*serverpb.BloomFilter, maxWidth int) ([]*serverpb.BloomFilter, error) {
 	seen := make(map[string]bool)
 	deduped := make([]*serverpb.BloomFilter, len(filters))
 	firstDuplicate := -1
@@ -285,6 +289,10 @@ func deleteDuplicates(filters []*serverpb.BloomFilter) ([]*serverpb.BloomFilter,
 
 	if lastNonEmpty < firstDuplicate {
 		firstDuplicate = lastNonEmpty + 1
+	}
+
+	if maxWidth > 0 && firstDuplicate > maxWidth {
+		firstDuplicate = maxWidth
 	}
 
 	return deduped[:firstDuplicate], nil

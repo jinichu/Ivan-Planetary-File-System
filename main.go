@@ -14,6 +14,7 @@ var (
 	bootstrap = flag.String("bootstrap", "", "addresses to bootstrap with, comma separated")
 	bind      = flag.String("bind", ":0", "the address to bind to")
 	maxPeers  = flag.Int("maxPeers", 100, "maximum number of peers")
+	maxWidth  = flag.Int("maxWidth", 20, "maximum graph width of the cluster")
 )
 
 func main() {
@@ -28,6 +29,7 @@ func run() error {
 	s, err := server.New(serverpb.NodeConfig{
 		Path:     *path,
 		MaxPeers: int32(*maxPeers),
+		MaxWidth: int32(*maxWidth),
 	})
 	if err != nil {
 		return err

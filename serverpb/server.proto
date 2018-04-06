@@ -15,6 +15,7 @@ message NodeMeta {
 message NodeConfig {
   string path = 1;
   int32 max_peers = 2;
+  int32 max_width = 3;
 }
 
 message HelloRequest {

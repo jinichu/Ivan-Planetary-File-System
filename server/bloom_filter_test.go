@@ -29,6 +29,7 @@ func TestDeleteDuplicates(t *testing.T) {
 
 	cases := []struct {
 		in, want []*serverpb.BloomFilter
+		maxWidth int
 	}{
 		{
 			[]*serverpb.BloomFilter{
@@ -37,6 +38,7 @@ func TestDeleteDuplicates(t *testing.T) {
 			[]*serverpb.BloomFilter{
 				empty,
 			},
+			0,
 		},
 		{
 			[]*serverpb.BloomFilter{
@@ -45,6 +47,7 @@ func TestDeleteDuplicates(t *testing.T) {
 			[]*serverpb.BloomFilter{
 				a, b, ab,
 			},
+			0,
 		},
 		{
 			[]*serverpb.BloomFilter{
@@ -53,6 +56,7 @@ func TestDeleteDuplicates(t *testing.T) {
 			[]*serverpb.BloomFilter{
 				empty, empty, a, b, ab,
 			},
+			0,
 		},
 		{
 			[]*serverpb.BloomFilter{
@@ -61,11 +65,31 @@ func TestDeleteDuplicates(t *testing.T) {
 			[]*serverpb.BloomFilter{
 				empty, empty, emptyString, emptyString, a,
 			},
+			0,
+		},
+		// Max Width Tests
+		{
+			[]*serverpb.BloomFilter{
+				a, b, ab,
+			},
+			[]*serverpb.BloomFilter{
+				a, b, ab,
+			},
+			10,
+		},
+		{
+			[]*serverpb.BloomFilter{
+				a, b, ab,
+			},
+			[]*serverpb.BloomFilter{
+				a, b,
+			},
+			2,
 		},
 	}
 
 	for i, c := range cases {
-		out, err := deleteDuplicates(c.in)
+		out, err := deleteDuplicates(c.in, c.maxWidth)
 		if err != nil {
 			t.Fatal(err)
 		}
