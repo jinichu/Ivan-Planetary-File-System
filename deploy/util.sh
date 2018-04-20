@@ -6,7 +6,7 @@ function ipn {
 }
 
 function sshvm {
-  sshpass -f password.txt ssh "$USER@$1" -C "$2"
+  sshpass -v -f password.txt ssh -oStrictHostKeyChecking=no "$USER@$1" -C "$2"
 }
 
 PROJECT_PATH="~/proj2"
