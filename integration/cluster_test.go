@@ -40,6 +40,77 @@ func TestCluster(t *testing.T) {
 	}
 }
 
+func TestClusterDownBack(t *testing.T) {
+	const nodes = 3
+	ts := NewTestCluster(t, nodes)
+	defer ts.Close()
+
+	for i, node := range ts.Nodes {
+		util.SucceedsSoon(t, func() error {
+			got := node.NumConnections()
+			want := nodes - 1
+			if got != want {
+				return errors.Errorf("%d. expected %d connections; got %d", i, want, got)
+			}
+			return nil
+		})
+	}
+
+	if err := ts.Nodes[2].Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	for i, node := range ts.Nodes {
+		if i == 2 {
+			continue
+		}
+
+		util.SucceedsSoon(t, func() error {
+			got := node.NumConnections()
+			want := nodes - 2
+			if got != want {
+				return errors.Errorf("%d. expected %d connections; got %d", i, want, got)
+			}
+			return nil
+		})
+	}
+
+	meta, err := ts.Nodes[0].NodeMeta()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ts.AddNode(ts.NodeConfig)
+	util.SucceedsSoon(t, func() error {
+		meta, err := ts.Nodes[3].NodeMeta()
+		if err != nil {
+			return err
+		}
+		if len(meta.Addrs) == 0 {
+			return errors.Errorf("no address")
+		}
+		return nil
+	})
+	if err := ts.Nodes[3].AddNode(meta, false); err != nil {
+		t.Fatalf("%+v", err)
+	}
+
+	for i, node := range ts.Nodes {
+		if i == 2 {
+			continue
+		}
+
+		util.SucceedsSoon(t, func() error {
+			got := node.NumConnections()
+			want := nodes - 1
+			if got != want {
+				return errors.Errorf("%d. expected %d connections; got %d", i, want, got)
+			}
+			return nil
+		})
+	}
+}
+
 func TestClusterMaxPeers(t *testing.T) {
 	const nodes = 5
 	const maxPeers = 2

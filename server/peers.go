@@ -217,14 +217,10 @@ func (s *Server) AddNode(meta serverpb.NodeMeta, force bool) error {
 // The server should prefer to connect to known first since that maximizes
 // the cross section bandwidth of the graph.
 func (s *Server) AddNodes(connected []*serverpb.NodeMeta, known []*serverpb.NodeMeta) error {
-	for _, meta := range known {
+	for _, meta := range append(known, connected...) {
 		if err := s.AddNode(*meta, false); err != nil {
-			return err
-		}
-	}
-	for _, meta := range connected {
-		if err := s.AddNode(*meta, false); err != nil {
-			return err
+			s.log.Printf("failed to AddNode: %+v", err)
+			continue
 		}
 	}
 	return nil
