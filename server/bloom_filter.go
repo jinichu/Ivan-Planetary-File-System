@@ -136,14 +136,21 @@ func (s *Server) ReceiveNewRoutingTable() {
 
 		tableCount := 0
 		s.mu.Lock()
+		maxDepth := 1
+
 		for id, peer := range s.mu.peers {
 			peers[id] = peer
 			if peer.routingTable != nil {
 				tableCount += 1
 			}
+
+			depth := len(peer.routingTable.GetFilters())
+			if depth > maxDepth {
+				maxDepth = depth + 1
+			}
 		}
 		s.mu.Unlock()
-		s.log.Printf("fetching routing tables... have %d", tableCount)
+		s.log.Printf("fetching routing tables... have %d, depth %d", tableCount, maxDepth)
 
 		for id, peer := range peers {
 			ctx, _ := context.WithTimeout(s.ctx, 10*time.Second)
