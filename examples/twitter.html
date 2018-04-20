@@ -213,6 +213,10 @@ function subscribe (id, cb) {
 
     <tweet-feed user-id="[[viewUser]]"></tweet-feed>
 
+    <p>
+      <paper-button on-tap="clearStorage" raised>💣 Clear Local Storage</paper-button>
+    </p>
+
     <iron-localstorage
       name="private-key"
       value="{{privateKey}}"
@@ -238,6 +242,13 @@ class MainApp extends Polymer.Element {
 
   connectedCallback () {
     super.connectedCallback()
+  }
+
+  clearStorage () {
+    Object.keys(window.localStorage).forEach(key => {
+      delete window.localStorage[key]
+    })
+    window.location.reload()
   }
 
   generateKey() {
