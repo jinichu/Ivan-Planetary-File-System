@@ -15,6 +15,7 @@ var (
 	bind      = flag.String("bind", ":0", "the address to bind to")
 	maxPeers  = flag.Int("maxPeers", 100, "maximum number of peers")
 	maxWidth  = flag.Int("maxWidth", 20, "maximum graph width of the cluster")
+	cacheSize = flag.Int("cacheSize", 100000000, "cache size of the node")
 )
 
 func main() {
@@ -27,9 +28,10 @@ func run() error {
 	flag.Parse()
 
 	s, err := server.New(serverpb.NodeConfig{
-		Path:     *path,
-		MaxPeers: int32(*maxPeers),
-		MaxWidth: int32(*maxWidth),
+		Path:      *path,
+		MaxPeers:  int32(*maxPeers),
+		MaxWidth:  int32(*maxWidth),
+		CacheSize: int64(*cacheSize),
 	})
 	if err != nil {
 		return err

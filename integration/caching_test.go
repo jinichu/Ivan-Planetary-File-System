@@ -6,9 +6,11 @@ import (
 	"reflect"
 	"testing"
 
+	"proj2_f5w9a_h6v9a_q7w9a_r8u8_w1c0b/server"
 	"proj2_f5w9a_h6v9a_q7w9a_r8u8_w1c0b/serverpb"
 	"proj2_f5w9a_h6v9a_q7w9a_r8u8_w1c0b/util"
 
+	"github.com/dgraph-io/badger"
 	"github.com/pkg/errors"
 )
 
@@ -71,16 +73,20 @@ func TestServer_LRUCache(t *testing.T) {
 			}
 
 			// Check that 2 has it locally.
-			resp, err = ts.Nodes[1].Get(ctx, &serverpb.GetRequest{
-				AccessId: nodeDocs[2].AccessID,
+			err = ts.Nodes[1].GetDB().View(func(txn *badger.Txn) error {
+				docID, _, _ := server.SplitAccessID(nodeDocs[2].AccessID)
+				key := fmt.Sprintf("/document/%s", docID)
+				_, err := txn.Get([]byte(key))
+				if err != nil {
+					return errors.Wrapf(err, "Fetching Document %q, from self %d: %s", key, 1, nodeDocs[1].Doc.Data)
+				}
+
+				return nil
 			})
+
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !reflect.DeepEqual(resp.Document, &doc) {
-				t.Fatalf("%d. got %+v; wanted %+v", 1, resp.Document, &doc)
-			}
-
 			return nil
 		})
 
@@ -90,6 +96,8 @@ func TestServer_LRUCache(t *testing.T) {
 
 		// Run file gets here.
 
+	}, func(c *cluster) {
+		c.NodeConfig.CacheSize = 1000000
 	})
 
 }

@@ -242,3 +242,8 @@ func (s *Server) DecryptDocument(documentData []byte, key []byte) (decryptedDocu
 
 	return decryptedDocument, nil
 }
+
+// Function for cache testing. returns and instance of the database.
+func (s *Server) GetDB() *badger.DB {
+	return s.db
+}
