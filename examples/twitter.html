@@ -30,15 +30,13 @@ function get (doc, tries) {
   if (!tries) {
     tries = 0
   }
+  if (tries > 5) {
+      throw 'tries exceeded ' + e
+  }
   const url = '/document/'+doc
   return fetch(url).then((resp) => {
-    console.log('resp', resp)
     return resp.json()
-  }).catch(() => {
-    console.log('catch')
-    if (tries > 5) {
-      throw 'tries exceeded'
-    }
+  }).catch((e) => {
     return sleep(null, 2000).then(() => {
       return get(doc, tries+1)
     })
@@ -253,7 +251,7 @@ class MainApp extends Polymer.Element {
 
   saveState () {
     return add({
-      data: btoa(JSON.stringify(this.state)),
+      data: btoa(JSON.stringify(this.state || {})),
       contentType: 'application/json'
     }).then((resp) => {
       const documentId = resp.access_id
