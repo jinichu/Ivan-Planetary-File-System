@@ -20,6 +20,8 @@ var (
 func (s *Server) GetRemoteFile(ctx context.Context, req *serverpb.GetRemoteFileRequest) (*serverpb.GetRemoteFileResponse, error) {
 	documentID := req.GetDocumentId()
 
+	s.log.Printf("GetRemoteFile %s", documentID)
+
 	var body []byte
 	if err := s.db.View(func(txn *badger.Txn) error {
 		key := fmt.Sprintf("/document/%s", documentID)
@@ -89,6 +91,7 @@ func (s *Server) GetRemoteFile(ctx context.Context, req *serverpb.GetRemoteFileR
 func (s *Server) GetRemoteReference(ctx context.Context, req *serverpb.GetRemoteReferenceRequest) (*serverpb.GetRemoteReferenceResponse, error) {
 
 	referenceID := req.GetReferenceId()
+	s.log.Printf("GetRemoteReference %s", referenceID)
 
 	var body []byte
 

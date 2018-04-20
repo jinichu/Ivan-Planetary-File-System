@@ -42,6 +42,8 @@ func (s *Server) listen(ref string) (<-chan *serverpb.Message, func()) {
 
 func (s *Server) Subscribe(req *serverpb.SubscribeRequest, stream serverpb.Node_SubscribeServer) error {
 	referenceID := req.GetChannelId()
+	s.log.Printf("Subscribe %s", referenceID)
+
 	// Check to make sure corresponding reference exists.
 	if err := s.db.View(func(txn *badger.Txn) error {
 		key := fmt.Sprintf("/reference/%s", referenceID)
