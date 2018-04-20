@@ -54,7 +54,11 @@ func start(client serverpb.ClientClient, ctx context.Context) {
 	for {
 		reader := bufio.NewReader(os.Stdin)
 		fmt.Print("ipfs> ")
-		input, _ := reader.ReadString('\n')
+		input, err := reader.ReadString('\n')
+		if err != nil {
+			fmt.Printf("%+v\n", err)
+			os.Exit(0)
+		}
 		input = strings.TrimSpace(input)
 		cmd := strings.Split(input, " ")
 		switch cmd[0] {
