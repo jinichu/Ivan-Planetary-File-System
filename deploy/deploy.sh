@@ -12,5 +12,5 @@ for ip in $(cat ips.txt); do
     mkdir -p ~/go"
 
   # transfer code
-  sshpass -v -f password.txt rsync -ravz .. $USER@$ip:$PROJECT_PATH --exclude .git --exclude tmp
+  sshpass -f password.txt rsync -ravz .. $USER@$ip:$PROJECT_PATH --exclude .git --exclude tmp
 done
